@@ -136,6 +136,7 @@ run([sys.executable, "-m", "pip", "install", "numpy>=1.24", "soundfile>=0.12", "
 run([sys.executable, "-m", "pip", "install", "--no-deps", "-e", REPO])
 probe = """
 import sys, json, torch, torchaudio
+import ru_kws.data.validate, ru_kws.train, ru_kws.evaluate
 from packaging.version import Version
 from ru_kws.audio.frontend import LogMelFrontend
 from ru_kws.models.bcresnet import BCResNets
