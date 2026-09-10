@@ -24,9 +24,9 @@ add("markdown", '''
 2. Проверьте пути в настройках ниже.
 3. Выполните ячейки до validation-отчёта.
 
-**Первый запуск без GitHub:** загрузите `ru-kws-source.zip` в корень «Мой диск».
-Датасет по умолчанию: `russian_commands_v001_clean_manual.zip` там же.
-После публикации проекта переключите `SOURCE_MODE` на `github` и укажите URL.
+Код загружается из [mole88/ru-kws](https://github.com/mole88/ru-kws), ветка `master`.
+Загрузите датасет `russian_commands_v001_clean_manual.zip` в корень «Мой диск».
+Для повторения эксперимента можно указать commit SHA в `REPO_REF`.
 
 WAV распаковываются на локальный диск Colab; checkpoints и отчёты пишутся на Drive.
 Baseline: 3 секунды, BC-ResNet-8, случайное размещение аудио, без noise mixing и
@@ -37,10 +37,8 @@ add("code", '''
 from pathlib import Path
 import sys, os, json, subprocess, hashlib, zipfile, tempfile, stat, csv
 
-SOURCE_MODE = "drive_zip"  # "drive_zip" или "github"
-REPO_URL = ""             # Например, URL вашего опубликованного GitHub-репозитория
-REPO_REF = "main"         # Ветка, tag или commit SHA; SHA удобнее для повторяемости
-SOURCE_ZIP = Path("/content/drive/MyDrive/ru-kws-source.zip")
+REPO_URL = "https://github.com/mole88/ru-kws.git"
+REPO_REF = "master"       # Ветка, tag или commit SHA; SHA удобнее для повторяемости
 DATASET_ZIP = Path("/content/drive/MyDrive/russian_commands_v001_clean_manual.zip")
 
 RUN_NAME = "bcresnet_run_002"  # Новое имя для каждого обучения
@@ -67,7 +65,7 @@ add("code", '''
 from google.colab import drive
 drive.mount("/content/drive")
 ''')
-add("markdown", "## 2. Загрузка кода проекта\nZIP и GitHub используют одну и ту же установку пакета.")
+add("markdown", "## 2. Загрузка кода проекта\nКлонируем GitHub-репозиторий и фиксируем SHA загруженной версии кода.")
 add("code", '''
 def run(command, cwd=None):
     print("Запуск:", " ".join(map(str, command)), flush=True)
@@ -115,21 +113,14 @@ def find_root(parent, marker, required):
         raise ValueError(f"Ожидалась одна папка с {marker}, найдены: {candidates}")
     return candidates[0]
 
-if SOURCE_MODE == "drive_zip":
-    unpacked, source_hash = extract_cached(SOURCE_ZIP, Path("/content/ru_kws_sources"))
-    REPO = find_root(unpacked, "pyproject.toml", ["src/ru_kws/train.py", "configs/baseline.yaml"])
-    source_info = {"mode": SOURCE_MODE, "archive": str(SOURCE_ZIP), "sha256": source_hash}
-elif SOURCE_MODE == "github":
-    if not REPO_URL.startswith("https://github.com/"):
-        raise ValueError("Укажите HTTPS URL своего GitHub-репозитория в REPO_URL")
-    REPO = Path(tempfile.mkdtemp(prefix="ru-kws-", dir="/content"))
-    run(["git", "clone", "--filter=blob:none", "--no-checkout", REPO_URL, REPO])
-    run(["git", "fetch", "--depth", "1", "origin", REPO_REF], cwd=REPO)
-    run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=REPO)
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
-    source_info = {"mode": SOURCE_MODE, "url": REPO_URL, "requested_ref": REPO_REF, "revision": revision}
-else:
-    raise ValueError("SOURCE_MODE: допустимы drive_zip и github")
+if not REPO_URL.startswith("https://github.com/"):
+    raise ValueError("Укажите HTTPS URL GitHub-репозитория в REPO_URL")
+REPO = Path(tempfile.mkdtemp(prefix="ru-kws-", dir="/content"))
+run(["git", "clone", "--filter=blob:none", "--no-checkout", REPO_URL, REPO])
+run(["git", "fetch", "--depth", "1", "origin", REPO_REF], cwd=REPO)
+run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=REPO)
+revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+source_info = {"mode": "github", "url": REPO_URL, "requested_ref": REPO_REF, "revision": revision}
 print("Проект:", REPO)
 print(json.dumps(source_info, ensure_ascii=False, indent=2))
 ''')

@@ -45,3 +45,15 @@ russian_commands_v001_clean_manual/
 - `evaluation`: метрики классификации клипов.
 - `train.py`, `evaluate.py`: CLI-точки входа.
 
+
+## Обучение в Colab
+
+[Открыть блокнот в Colab](https://colab.research.google.com/github/mole88/ru-kws/blob/master/notebooks/ru_kws_training.ipynb).
+
+Включите GPU, загрузите архив датасета на Google Drive и выполните ячейки по порядку.
+Код автоматически загружается из GitHub (ветка `master`); ZIP исходников не нужен.
+В настройках укажите путь к датасету и новое имя запуска `RUN_NAME`.
+Checkpoints и отчёты сохраняются на Drive. Финальный test выключен по умолчанию.
+Для воспроизводимости можно заменить `REPO_REF` на commit SHA.
+
+После изменения генератора обновите блокнот командой `python scripts/build_colab.py`.
