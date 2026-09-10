@@ -6,6 +6,7 @@ from pathlib import Path
 
 import soundfile as sf
 
+from ru_kws.data.filtering import filter_long_commands
 from ru_kws.data.manifest import read_labels, read_manifest, audio_path
 
 
@@ -14,15 +15,13 @@ def validate_dataset(root, window_seconds=3.0):
     seen = {}
     counts = {}
     for split in ("train", "val", "test"):
-        rows = read_manifest(root, split, labels)
+        rows, _ = filter_long_commands(root, read_manifest(root, split, labels), split, window_seconds)
         counts[split] = dict(Counter(row["label"] for row in rows))
         for row in rows:
             path = audio_path(root, row["path"])
             info = sf.info(path)
             if info.samplerate != 16000 or info.channels != 1 or info.frames == 0:
                 raise ValueError(f"Expected nonempty mono 16 kHz WAV: {path}")
-            if row["label"] not in {"unknown", "background"} and info.frames > round(window_seconds * 16000):
-                raise ValueError(f"Command longer than {window_seconds}s: {path}")
             sha = hashlib.sha256(path.read_bytes()).hexdigest()
             if row.get("sha256") and row["sha256"] != sha:
                 raise ValueError(f"WAV checksum mismatch: {path}")

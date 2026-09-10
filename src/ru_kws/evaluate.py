@@ -31,7 +31,7 @@ def main():
     loader = make_loader(args.data_root, args.split, labels, config)
     report = evaluate_clips(model, frontend, loader, labels, device)
     report.update(checkpoint=str(args.checkpoint.resolve()), epoch=checkpoint["epoch"],
-                  split=args.split, manifest_sha256=manifest_hash(args.data_root, args.split))
+                  split=args.split, dropped_records=loader.dataset.dropped_records, manifest_sha256=manifest_hash(args.data_root, args.split))
     write_json(args.output, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
 

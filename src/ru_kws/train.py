@@ -50,6 +50,8 @@ def main():
     write_json(args.run_dir / "dataset_summary.json", {
         "data_root": str(args.data_root.resolve()), "manifest_sha256": fingerprints,
         "train_count": len(train_loader.dataset), "val_count": len(val_loader.dataset),
+        "dropped_records": {"train": train_loader.dataset.dropped_records,
+                            "val": val_loader.dataset.dropped_records},
     })
     model = build_model(config, len(labels)).to(device)
     frontend = build_frontend(config).to(device)
