@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ru-kws"
+version = "0.1.0"
+description = "Russian command classification with BC-ResNet"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.5,<3", "torchaudio>=2.5,<3", "numpy>=1.24", "soundfile>=0.12", "PyYAML>=6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"ru_kws.models" = ["QUALCOMM_LICENSE.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
