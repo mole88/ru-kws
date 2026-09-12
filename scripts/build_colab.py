@@ -16,66 +16,66 @@ def add(kind, source):
 
 
 add("markdown", '''
-# ru-kws: обучение BC-ResNet в Colab
+# ru-kws: training BC-ResNet in Colab
 
-Блокнот запускает модули проекта; обучение не дублируется в ячейках.
+The notebook runs project modules; training code is not duplicated in cells.
 
-1. Включите GPU в настройках среды Colab.
-2. Проверьте пути в настройках ниже.
-3. Выполните ячейки до validation-отчёта.
+1. Enable a GPU in the Colab runtime settings.
+2. Check the paths in the configuration below.
+3. Run the cells through the validation report.
 
-Код загружается из [mole88/ru-kws](https://github.com/mole88/ru-kws), ветка `master`.
-Загрузите датасет `russian_commands_v001_clean_manual.zip` в корень «Мой диск».
-Для повторения эксперимента можно указать commit SHA в `REPO_REF`.
+Code is downloaded from [mole88/ru-kws](https://github.com/mole88/ru-kws), branch `master`.
+Upload `russian_commands_v001_clean_manual.zip` to the root of My Drive.
+Set `REPO_REF` to a commit SHA to reproduce an experiment.
 
-WAV распаковываются на локальный диск Colab; checkpoints и отчёты пишутся на Drive.
-Baseline: 3 секунды, BC-ResNet-8, случайное размещение аудио, без noise mixing и
-SpecAugment. При отключении Colab завершённые эпохи сохранятся, но **resume пока нет**.
-Не используйте новый запуск обучения как продолжение старого.
+WAV files are extracted to local Colab storage; checkpoints and reports are saved to Drive.
+Baseline: 3 seconds, BC-ResNet-8, random audio placement, no noise mixing or
+SpecAugment. Completed epochs are saved if Colab disconnects, but **resume is not supported yet**.
+Do not treat a new training run as a continuation of a previous run.
 ''')
 add("code", '''
 from pathlib import Path
 import sys, os, json, subprocess, hashlib, zipfile, tempfile, stat, csv
 
 REPO_URL = "https://github.com/mole88/ru-kws.git"
-REPO_REF = "master"       # Ветка, tag или commit SHA; SHA удобнее для повторяемости
+REPO_REF = "master"       # Branch, tag, or commit SHA; a SHA improves reproducibility
 DATASET_ZIP = Path("/content/drive/MyDrive/russian_commands_v001_clean_manual.zip")
 
-RUN_NAME = "bcresnet_run_002"  # Новое имя для каждого обучения
+RUN_NAME = "bcresnet_run_002"  # Use a new name for each training run
 RUNS_ROOT = Path("/content/drive/MyDrive/russian_commands/runs")
 WINDOW_SECONDS = 3.0
-BASE_C = 64                   # 8/12/16/24/48/64; 64 соответствует BC-ResNet-8
+BASE_C = 64                   # 8/12/16/24/48/64; 64 corresponds to BC-ResNet-8
 BATCH_SIZE = 32
 MAX_EPOCHS = 30
 LEARNING_RATE = 3e-4
-REQUIRE_GPU = True            # False только для намеренного CPU запуска
+REQUIRE_GPU = True            # Set False only for an intentional CPU run
 
-# Финальный test выключен, чтобы не использовать его для подбора параметров.
+# Final test evaluation is disabled to avoid using it for tuning.
 RUN_FINAL_TEST = False
 
 if not RUN_NAME or Path(RUN_NAME).name != RUN_NAME or RUN_NAME in {".", ".."}:
-    raise ValueError("RUN_NAME должен быть именем папки без пути")
+    raise ValueError("RUN_NAME must be a directory name without a path")
 RUN_DIR = RUNS_ROOT / RUN_NAME
 os.environ["PYTHONUNBUFFERED"] = "1"
 os.environ["MPLBACKEND"] = "Agg"
-print("Результаты:", RUN_DIR)
+print("Results:", RUN_DIR)
 ''')
-add("markdown", "## 1. Подключение Google Drive")
+add("markdown", "## 1. Connect Google Drive")
 add("code", '''
 from google.colab import drive
 drive.mount("/content/drive")
 ''')
-add("markdown", "## 2. Загрузка кода проекта\nКлонируем GitHub-репозиторий и фиксируем SHA загруженной версии кода.")
+add("markdown", "## 2. Download project code\nClone the GitHub repository and record the downloaded revision SHA.")
 add("code", '''
 def run(command, cwd=None):
-    print("Запуск:", " ".join(map(str, command)), flush=True)
+    print("Running:", " ".join(map(str, command)), flush=True)
     with subprocess.Popen(list(map(str, command)), cwd=cwd,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, encoding="utf-8", errors="replace", bufsize=1) as process:
         for line in process.stdout:
             print(line, end="", flush=True)
         if process.wait():
-            raise RuntimeError(f"Команда завершилась с кодом {process.returncode}; ошибка выше")
+            raise RuntimeError(f"Command exited with code {process.returncode}; see the error above")
 
 def file_sha256(path):
     digest = hashlib.sha256()
@@ -86,12 +86,12 @@ def file_sha256(path):
 
 def extract_cached(archive, parent):
     if not archive.is_file():
-        raise FileNotFoundError(f"Загрузите архив на Drive или исправьте путь: {archive}")
+        raise FileNotFoundError(f"Upload the archive to Drive or correct the path: {archive}")
     digest = file_sha256(archive)
     target = parent / digest
     marker = target / ".extraction_complete"
     if marker.exists():
-        print("Используем уже распакованный архив:", target)
+        print("Reusing the extracted archive:", target)
         return target, digest
     target.mkdir(parents=True, exist_ok=True)
     root = target.resolve()
@@ -100,8 +100,8 @@ def extract_cached(archive, parent):
         for member in members:
             destination = (root / member.filename).resolve()
             if not destination.is_relative_to(root) or stat.S_ISLNK(member.external_attr >> 16):
-                raise ValueError(f"Недопустимый путь в ZIP: {member.filename}")
-        print(f"Распаковка {len(members)} файлов...", flush=True)
+                raise ValueError(f"Invalid path in ZIP: {member.filename}")
+        print(f"Extracting {len(members)} files...", flush=True)
         zf.extractall(target)
     marker.write_text(digest)
     return target, digest
@@ -110,26 +110,26 @@ def find_root(parent, marker, required):
     candidates = [p.parent for p in parent.rglob(marker)
                   if "__MACOSX" not in p.parts and all((p.parent / item).exists() for item in required)]
     if len(candidates) != 1:
-        raise ValueError(f"Ожидалась одна папка с {marker}, найдены: {candidates}")
+        raise ValueError(f"Expected one directory containing {marker}, found: {candidates}")
     return candidates[0]
 
 if not REPO_URL.startswith("https://github.com/"):
-    raise ValueError("Укажите HTTPS URL GitHub-репозитория в REPO_URL")
+    raise ValueError("Set REPO_URL to an HTTPS GitHub repository URL")
 REPO = Path(tempfile.mkdtemp(prefix="ru-kws-", dir="/content"))
 run(["git", "clone", "--filter=blob:none", "--no-checkout", REPO_URL, REPO])
 run(["git", "fetch", "--depth", "1", "origin", REPO_REF], cwd=REPO)
 run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=REPO)
 revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
 source_info = {"mode": "github", "url": REPO_URL, "requested_ref": REPO_REF, "revision": revision}
-print("Проект:", REPO)
+print("Project:", REPO)
 print(json.dumps(source_info, ensure_ascii=False, indent=2))
 ''')
 add("markdown", '''
-## 3. Установка и проверка среды
+## 3. Install and verify the environment
 
-Используем PyTorch/torchaudio среды Colab; эта ячейка не переустанавливает их.
-Чтение WAV реализовано через SoundFile и не требует `torchcodec`.
-Если проверка GPU не проходит, включите GPU и перезапустите среду.
+Use the PyTorch/torchaudio packages provided by Colab; this cell does not reinstall them.
+WAV loading uses SoundFile and does not require `torchcodec`.
+If the GPU check fails, enable a GPU and restart the runtime.
 ''')
 add("code", '''
 run([sys.executable, "-m", "pip", "install", "numpy>=1.24", "soundfile>=0.12", "PyYAML>=6", "matplotlib>=3.6", "packaging"])
@@ -142,7 +142,7 @@ from ru_kws.audio.frontend import LogMelFrontend
 from ru_kws.models.bcresnet import BCResNets
 assert Version(torch.__version__.split('+')[0]) >= Version('2.5')
 assert Version(torchaudio.__version__.split('+')[0]) >= Version('2.5')
-assert not REQUIRE_GPU or torch.cuda.is_available(), 'Включите GPU в настройках Colab'
+assert not REQUIRE_GPU or torch.cuda.is_available(), 'Enable a GPU in the Colab settings'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 with torch.inference_mode():
     x = LogMelFrontend().to(device)(torch.zeros(1, 48000, device=device))
@@ -156,25 +156,25 @@ print(json.dumps({'python': sys.version, 'torch': str(torch.__version__),
 run([sys.executable, "-c", "REQUIRE_GPU = " + repr(REQUIRE_GPU) + "\\n" + probe])
 ''')
 add("markdown", '''
-## 4. Локальная копия датасета
+## 4. Local dataset copy
 
-Корень с `labels.json` находится автоматически, включая вложенную папку архива.
-Повторная распаковка того же архива в одной среде пропускается.
+The root containing `labels.json` is detected automatically, including nested archive directories.
+Repeated extraction of the same archive in the same runtime is skipped.
 ''')
 add("code", '''
 unpacked, dataset_archive_hash = extract_cached(DATASET_ZIP, Path("/content/ru_kws_data"))
 DATA_ROOT = find_root(unpacked, "labels.json", ["splits/train.jsonl", "splits/val.jsonl", "splits/test.jsonl"])
-print("Датасет:", DATA_ROOT)
-print("Метки:", json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8")))
+print("Dataset:", DATA_ROOT)
+print("Labels:", json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8")))
 ''')
 add("markdown", '''
-## 5. Конфигурация и проверка данных
+## 5. Configuration and data validation
 
-Команды длиннее `WINDOW_SECONDS` автоматически исключаются из train/val/test.
-Исходные WAV и manifests остаются без изменений. Число исключённых записей выводится
-при проверке и загрузке данных; метрики считаются по оставшимся записям.
-Длинные unknown/background сохраняются и обрезаются до окна при загрузке.
-Валидатор всех splits проверяет формат и отсутствие пересечений, а не качество модели.
+Commands longer than `WINDOW_SECONDS` are automatically excluded from train/val/test.
+Source WAV files and manifests remain unchanged. The number of excluded recordings is reported
+during validation and loading; metrics use the remaining recordings.
+Long unknown/background recordings are retained and cropped to the window during loading.
+The split validator checks format and split overlap; it does not evaluate model quality.
 ''')
 add("code", '''
 import yaml
@@ -190,25 +190,25 @@ run([sys.executable, "-m", "ru_kws.data.validate", "--data-root", DATA_ROOT,
      "--window-seconds", WINDOW_SECONDS], cwd=REPO)
 ''')
 add("markdown", '''
-## 6. Обучение
+## 6. Training
 
-Начало эпохи может занимать время; loss/accuracy выводятся после каждой эпохи.
-`best.pt` выбирается по validation loss, `last.pt` сохраняется после каждой эпохи.
-Повторный запуск в непустую папку запрещён. Для нового эксперимента поменяйте `RUN_NAME`.
-Чтобы только оценить существующий checkpoint, пропустите эту ячейку.
+Starting an epoch can take time; loss/accuracy are reported after each epoch.
+`best.pt` is selected by validation loss; `last.pt` is saved after each epoch.
+Runs cannot reuse a nonempty directory. Change `RUN_NAME` for a new experiment.
+Skip this cell to evaluate an existing checkpoint without training.
 ''')
 add("code", '''
 if RUN_DIR.exists() and any(RUN_DIR.iterdir()):
-    raise FileExistsError(f"Папка уже содержит запуск: {RUN_DIR}. Выберите новый RUN_NAME или перейдите к оценке.")
+    raise FileExistsError(f"The directory already contains a run: {RUN_DIR}. Choose a new RUN_NAME or proceed to evaluation.")
 run([sys.executable, "-m", "ru_kws.train", "--config", CONFIG_PATH,
      "--data-root", DATA_ROOT, "--run-dir", RUN_DIR, "--device", "auto"], cwd=REPO)
 (RUN_DIR / "colab_source.json").write_text(json.dumps({
     "source": source_info, "dataset_archive": str(DATASET_ZIP),
     "dataset_archive_sha256": dataset_archive_hash,
 }, ensure_ascii=False, indent=2), encoding="utf-8")
-print("Лучший checkpoint:", RUN_DIR / "best.pt")
+print("Best checkpoint:", RUN_DIR / "best.pt")
 ''')
-add("markdown", "## 7. Графики обучения\nСтроятся из сохранённого `history.csv`, без повторного обучения.")
+add("markdown", "## 7. Training plots\nGenerated from the saved `history.csv`, without retraining.")
 add("code", '''
 import matplotlib.pyplot as plt
 with (RUN_DIR / "history.csv").open(encoding="utf-8") as stream:
@@ -227,16 +227,16 @@ fig.savefig(RUN_DIR / "reports" / "training.png", dpi=150)
 plt.show()
 ''')
 add("markdown", '''
-## 8. Оценка лучшего checkpoint на validation
+## 8. Evaluate the best checkpoint on validation
 
-CLI сам загружает `best.pt`, его frontend config и label map.
-Это classification-метрики клипов, не FP/hour и не задержка потокового распознавания.
+The CLI loads `best.pt`, its frontend configuration, and its label map.
+These are clip classification metrics; they do not measure false positives per hour or streaming latency.
 ''')
 add("code", '''
 def evaluate_split(split):
     checkpoint = RUN_DIR / "best.pt"
     if not checkpoint.is_file():
-        raise FileNotFoundError(f"Не найден checkpoint: {checkpoint}")
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
     output_path = RUN_DIR / "reports" / f"{split}.json"
     run([sys.executable, "-m", "ru_kws.evaluate", "--checkpoint", checkpoint,
          "--data-root", DATA_ROOT, "--split", split, "--output", output_path], cwd=REPO)
@@ -259,7 +259,7 @@ def show_report(report):
     for (i, j), value in np.ndenumerate(cm):
         ax.text(j, i, str(value), ha="center", va="center",
                 color="white" if value > cm.max() / 2 else "black")
-    ax.set_xlabel("Предсказанный класс"); ax.set_ylabel("Истинный класс")
+    ax.set_xlabel("Predicted class"); ax.set_ylabel("True class")
     ax.set_title(f"{report['split']} — best checkpoint, epoch {report['epoch']}")
     fig.colorbar(im, ax=ax); fig.tight_layout()
     fig.savefig(RUN_DIR / "reports" / f"{report['split']}_confusion.png", dpi=150)
@@ -269,18 +269,18 @@ val_report = evaluate_split("val")
 show_report(val_report)
 ''')
 add("markdown", '''
-## 9. Финальный test — опционально
+## 9. Final test (optional)
 
-После фиксации модели и настроек поставьте `RUN_FINAL_TEST=True` в настройках
-или непосредственно перед условием ниже. По умолчанию при «Выполнить все» test не запускается.
+After fixing the model and settings, set `RUN_FINAL_TEST=True` in the configuration
+or immediately before the condition below. Check its current value before using Run all.
 ''')
 add("code", '''
 if RUN_FINAL_TEST:
     test_report = evaluate_split("test")
     show_report(test_report)
 else:
-    print("Test пропущен. Используйте validation для подбора настроек.")
-print("Все результаты на Drive:", RUN_DIR)
+    print("Test skipped. Use validation for tuning.")
+print("All results on Drive:", RUN_DIR)
 ''')
 
 notebook = {"cells": cells, "metadata": {
