@@ -1,4 +1,4 @@
-"""Build the Colab notebook for training, TFLite export, and evaluation."""
+"""Build the main Colab notebook. Edit cell sources here, then run this script."""
 import json
 from pathlib import Path
 from textwrap import dedent
@@ -6,63 +6,96 @@ from textwrap import dedent
 ROOT = Path(__file__).resolve().parents[1]
 cells = []
 
-def add(kind, source):
-    cell = {"cell_type": kind, "metadata": {}, "id": f"cell-{len(cells):02d}",
-            "source": dedent(source).strip() + "\n"}
+def add(kind, source, metadata=None):
+    cell = dict(cell_type=kind, metadata=metadata or {}, id=f"cell-{len(cells):02d}",
+                source=dedent(source).strip() + "\n")
     if kind == "code":
+        if "class ExportableLogMelFrontend" in source:
+            cell["metadata"]["jupyter"] = {"source_hidden": True}
         cell.update(execution_count=None, outputs=[])
     cells.append(cell)
 
 add('markdown', r'''
-# Russian KWS: training, TFLite export, and evaluation
-
-Run the setup and dataset cells first. Training, PyTorch evaluation, TFLite export,
-and TFLite dataset validation are separate stages. To export an existing checkpoint,
-skip the training and PyTorch report cells and start at section 10 after setup.
-All export settings come from the checkpoint; the exported model accepts raw audio.
-''')
+# Russian KWS
+''', {})
 
 add('code', r'''
 from pathlib import Path
 import sys, os, json, subprocess, hashlib, zipfile, tempfile, stat, csv
 import torch
+from datetime import datetime, timezone
+from uuid import uuid4
 
 REPO_URL = "https://github.com/mole88/ru-kws.git"
 REPO_REF = "dev"  # Use a commit SHA for reproducibility.
-DATASET_ZIP = Path("/content/drive/MyDrive/russian_commands/russian_commands_v001_clean_manual.zip")
+DATASET_ZIP = Path("/content/drive/MyDrive/russian_commands/russian_commands_v001_clean_manual_with_aug.zip")
 
-RUN_NAME = "bcresnet_run_003"
+RUN_NAME = "bcresnet_run_004"
 RUNS_ROOT = Path("/content/drive/MyDrive/russian_commands/runs")
+BASE_CONFIG = "augmented.yaml"
 WINDOW_SECONDS = 3.0
 BASE_C = 64                   # 8/12/16/24/48/64; 64 - BC-ResNet-8
 BATCH_SIZE = 64
-MAX_EPOCHS = 60
+MAX_EPOCHS = 120
 LEARNING_RATE = 3e-4
 REQUIRE_GPU = torch.cuda.is_available()
 
-RUN_FINAL_TEST = True
+RUN_FINAL_TEST = False
+TFLITE_SPLIT = "val"
+RECORDINGS_ZIP = Path("/content/drive/MyDrive/russian_commands/recordings.zip")
+# Set a path to reuse an export; None creates a new export directory.
+EXISTING_TFLITE_PATH = None
+CONTINUOUS_WAV = None  # Relative path inside RECORDINGS_ZIP; None auto-selects one recording.
+THRESHOLD = 0.5
+HOP_SECONDS = 0.1
+MIN_CONSECUTIVE = 2
+RELEASE_SECONDS = 0.3
+COOLDOWN_SECONDS = 1.0
+EARLY_TOLERANCE = 0.0
+LATE_TOLERANCE = 1.0
+ALLOW_DRAFT = True  # Draft annotation metrics are provisional.
 
+if not RUN_NAME or Path(RUN_NAME).name != RUN_NAME or RUN_NAME in {".", ".."}:
+    raise ValueError("RUN_NAME must be a single directory name")
 RUN_DIR = RUNS_ROOT / RUN_NAME
+
 os.environ["PYTHONUNBUFFERED"] = "1" # for realtime logs output
 os.environ["MPLBACKEND"] = "Agg" # for stable working with graphics libs
 print("Run path:", RUN_DIR)
-''')
+''', {})
 
 add('markdown', r'''
-## 1. Connect Google Drive
-''')
+## 1. Google Drive
+''', {})
 
 add('code', r'''
 from google.colab import drive
 drive.mount("/content/drive")
-''')
+''', {})
 
 add('markdown', r'''
-## 2. Download project code
-Clone the GitHub repository and record the downloaded revision SHA.
-''')
+## 2. Код проекта
+''', {})
 
 add('code', r'''
+def unique_id():
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ") + "_" + uuid4().hex[:8]
+
+def saved_path(folder, name):
+    path = RUN_DIR / folder / name
+    return path if path.exists() else RUN_DIR / name  # Existing flat runs.
+
+def measurement_dir(kind):
+    return RUN_DIR / "measurements" / kind / unique_id()
+
+def save_measurement(directory, kind, inputs, **settings):
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {"schema_version": 1, "kind": kind, "created_at": datetime.now(timezone.utc).isoformat(),
+               "run": str(RUN_DIR), "source": source_info, "settings": settings,
+               "inputs": {name: {"path": str(path), "sha256": file_sha256(path)}
+                          for name, path in inputs.items()}}
+    (directory / "measurement.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
 def run(command, cwd=None):
     print("Run:", " ".join(map(str, command)), flush=True)
     with subprocess.Popen(list(map(str, command)), cwd=cwd,
@@ -117,15 +150,11 @@ revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=
 source_info = {"mode": "github", "url": REPO_URL, "requested_ref": REPO_REF, "revision": revision}
 print("Project:", REPO)
 print(json.dumps(source_info, ensure_ascii=False, indent=2))
-''')
+''', {})
 
 add('markdown', r'''
-## 3. Install and verify the environment
-
-Use the PyTorch/torchaudio packages provided by Colab; this cell does not reinstall them.
-WAV loading uses SoundFile and does not require `torchcodec`.
-If the GPU check fails, enable a GPU and restart the runtime.
-''')
+## 3. Окружение
+''', {})
 
 add('code', r'''
 run([sys.executable, "-m", "pip", "install", "numpy>=1.24", "soundfile>=0.12", "PyYAML>=6", "matplotlib>=3.6", "packaging"])
@@ -149,35 +178,26 @@ print(json.dumps({'python': sys.version, 'torch': str(torch.__version__),
     'gpu': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}, indent=2))
 """
 run([sys.executable, "-c", "REQUIRE_GPU = " + repr(REQUIRE_GPU) + "\n" + probe])
-''')
+''', {})
 
 add('markdown', r'''
-## 4. Local dataset copy
-
-The root containing `labels.json` is detected automatically, including nested archive directories.
-Repeated extraction of the same archive in the same runtime is skipped.
-''')
+## 4. Датасет
+''', {})
 
 add('code', r'''
 unpacked, dataset_archive_hash = extract_cached(DATASET_ZIP, Path("/content/ru_kws_data"))
 DATA_ROOT = find_root(unpacked, "labels.json", ["splits/train.jsonl", "splits/val.jsonl", "splits/test.jsonl"])
 print("Dataset:", DATA_ROOT)
 print("Labels:", json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8")))
-''')
+''', {})
 
 add('markdown', r'''
-## 5. Configuration and data validation
-
-Commands longer than `WINDOW_SECONDS` are automatically excluded from train/val/test.
-Source WAV files and manifests remain unchanged. The number of excluded recordings is reported
-during validation and loading; metrics use the remaining recordings.
-Long unknown/background recordings are retained and cropped to the window during loading.
-The split validator checks format and split overlap; it does not evaluate model quality.
-''')
+## 5. Настройки обучения и проверка данных
+''', {})
 
 add('code', r'''
 import yaml
-config = yaml.safe_load((REPO / "configs/baseline.yaml").read_text(encoding="utf-8"))
+config = yaml.safe_load((REPO / "configs" / BASE_CONFIG).read_text(encoding="utf-8"))
 config["audio"]["window_seconds"] = WINDOW_SECONDS
 config["model"]["base_c"] = BASE_C
 config["training"].update(batch_size=BATCH_SIZE, max_epochs=MAX_EPOCHS,
@@ -187,37 +207,31 @@ CONFIG_PATH.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
 print(CONFIG_PATH.read_text())
 run([sys.executable, "-m", "ru_kws.data.validate", "--data-root", DATA_ROOT,
      "--window-seconds", WINDOW_SECONDS], cwd=REPO)
-''')
+''', {})
 
 add('markdown', r'''
-## 6. Training
-
-Starting an epoch can take time; loss/accuracy are reported after each epoch.
-`best.pt` is selected by validation loss; `last.pt` is saved after each epoch.
-Runs cannot reuse a nonempty directory. Change `RUN_NAME` for a new experiment.
-Skip this cell to evaluate an existing checkpoint without training.
-''')
+## 6. Обучение
+''', {})
 
 add('code', r'''
 if RUN_DIR.exists() and any(RUN_DIR.iterdir()):
     raise FileExistsError(f"Run directory already exists: {RUN_DIR}.")
 run([sys.executable, "-m", "ru_kws.train", "--config", CONFIG_PATH,
      "--data-root", DATA_ROOT, "--run-dir", RUN_DIR, "--device", "auto"], cwd=REPO)
-(RUN_DIR / "colab_source.json").write_text(json.dumps({
+(RUN_DIR / "metadata" / "colab_source.json").write_text(json.dumps({
     "source": source_info, "dataset_archive": str(DATASET_ZIP),
     "dataset_archive_sha256": dataset_archive_hash,
 }, ensure_ascii=False, indent=2), encoding="utf-8")
-print("Best checkpoint:", RUN_DIR / "best.pt")
-''')
+print("Best checkpoint:", saved_path("checkpoints", "best.pt"))
+''', {})
 
 add('markdown', r'''
-## 7. Training plots
-Generated from the saved `history.csv`, without retraining.
-''')
+## 7. Графики обучения
+''', {})
 
 add('code', r'''
 import matplotlib.pyplot as plt
-with (RUN_DIR / "history.csv").open(encoding="utf-8") as stream:
+with saved_path("training", "history.csv").open(encoding="utf-8") as stream:
     history = list(csv.DictReader(stream))
 epochs = [int(row["epoch"]) for row in history]
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -228,30 +242,34 @@ for key in ("train_accuracy", "val_accuracy"):
 for ax, title in zip(axes, ("Loss", "Accuracy")):
     ax.set_title(title); ax.set_xlabel("Epoch"); ax.grid(alpha=0.3); ax.legend()
 fig.tight_layout()
-(RUN_DIR / "reports").mkdir(exist_ok=True)
-fig.savefig(RUN_DIR / "reports" / "training.png", dpi=150)
+(RUN_DIR / "training").mkdir(exist_ok=True)
+fig.savefig(RUN_DIR / "training" / "curves.png", dpi=150)
 plt.show()
-''')
+''', {})
 
 add('markdown', r'''
-## 8. Evaluate the best checkpoint on validation
-
-The CLI loads `best.pt`, its frontend configuration, and its label map.
-These are clip classification metrics; they do not measure false positives per hour or streaming latency.
-''')
+## 8. PyTorch: валидация
+''', {})
 
 add('code', r'''
 def evaluate_split(split):
-    checkpoint = RUN_DIR / "best.pt"
+    checkpoint = saved_path("checkpoints", "best.pt")
     if not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
-    output_path = RUN_DIR / "reports" / f"{split}.json"
+    report_dir = measurement_dir(f"pytorch/{split}")
+    output_path = report_dir / "metrics.json"
     run([sys.executable, "-m", "ru_kws.evaluate", "--checkpoint", checkpoint,
          "--data-root", DATA_ROOT, "--split", split, "--output", output_path], cwd=REPO)
-    return json.loads(output_path.read_text(encoding="utf-8"))
+    save_measurement(report_dir, "pytorch_clips", {"checkpoint": checkpoint,
+        "manifest": DATA_ROOT / "splits" / f"{split}.jsonl"}, split=split,
+        dataset_archive_sha256=dataset_archive_hash)
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    report["report_dir"] = str(report_dir)
+    return report
 
 def show_report(report):
     import numpy as np
+    import matplotlib.pyplot as plt
     print(f"Epoch: {report['epoch']} | split: {report['split']} | N={report['count']}")
     print(f"Accuracy: {report['accuracy']:.4f} | macro F1: {report['macro_f1']:.4f}")
     print(f"{'Class':20s} {'Precision':>10s} {'Recall':>10s} {'F1':>10s} {'Support':>8s}")
@@ -270,19 +288,16 @@ def show_report(report):
     ax.set_xlabel("Predicted class"); ax.set_ylabel("True class")
     ax.set_title(f"{report['split']} — best checkpoint, epoch {report['epoch']}")
     fig.colorbar(im, ax=ax); fig.tight_layout()
-    fig.savefig(RUN_DIR / "reports" / f"{report['split']}_confusion.png", dpi=150)
+    fig.savefig(Path(report["report_dir"]) / "confusion.png", dpi=150)
     plt.show()
 
 val_report = evaluate_split("val")
 show_report(val_report)
-''')
+''', {})
 
 add('markdown', r'''
-## 9. Final PyTorch test (optional)
-
-Run this only after fixing the model and tuning settings on validation.
-The configuration above currently enables `RUN_FINAL_TEST`; set it to False to skip this stage.
-''')
+## 9. PyTorch: финальный тест
+''', {})
 
 add('code', r'''
 if RUN_FINAL_TEST:
@@ -291,31 +306,24 @@ if RUN_FINAL_TEST:
 else:
     print("Test skipped.")
 print("All results on Drive:", RUN_DIR)
-''')
+''', {})
 
 add('markdown', r'''
-## 10. Install TFLite export and evaluation dependencies
-
-Run once in the Colab runtime before export. If pip replaces packages already imported
-(especially PyTorch), restart the runtime and rerun setup, dataset loading, and sections
-11 onward. An existing checkpoint can be exported without retraining.
-Conversion follows the [LiteRT Torch API](https://github.com/google-ai-edge/litert-torch).
-''')
+## 10. Зависимости TFLite
+''', {})
 
 add('code', r'''
 run([sys.executable, "-m", "pip", "install", "litert-torch", "ai-edge-litert",
      "scipy", "scikit-learn", "tqdm"])
-''')
+''', {})
 
 add('markdown', r'''
-## 11. Configure export and load the checkpoint
-
-Use the model and frontend from this project, with architecture, class order, sample
-rate, and window length restored from the checkpoint. Change `CHECKPOINT_PATH` here
-to export a different run. Export artifacts and evaluation reports are saved to Drive.
-''')
+## 11. Чекпоинт и пути экспорта
+''', {})
 
 add('code', r'''
+from matplotlib import pyplot as plt
+
 import torch
 from torch import nn
 
@@ -328,11 +336,11 @@ from ru_kws.audio.frontend import build_frontend
 from ru_kws.checkpoint import load_checkpoint
 from ru_kws.models.factory import build_model
 
-CHECKPOINT_PATH = RUN_DIR / "best.pt"
-EXPORT_DIR = CHECKPOINT_PATH.parent / "export"
-TFLITE_PATH = EXPORT_DIR / "bcresnet_with_frontend_fp32.tflite"
-TFLITE_SPLIT = "val"
-TFLITE_REPORT_DIR = EXPORT_DIR / f"{TFLITE_SPLIT}_001"
+CHECKPOINT_PATH = saved_path("checkpoints", "best.pt")
+EXPORT_DIR = RUN_DIR / "exports" / unique_id()
+TFLITE_PATH = (Path(EXISTING_TFLITE_PATH) if EXISTING_TFLITE_PATH else
+               EXPORT_DIR / "bcresnet_with_frontend_fp32.tflite")
+EXPORT_DIR = TFLITE_PATH.parent
 
 checkpoint = load_checkpoint(CHECKPOINT_PATH)
 export_config = checkpoint["config"]
@@ -349,16 +357,11 @@ print("Checkpoint:", CHECKPOINT_PATH)
 print("Epoch:", checkpoint.get("epoch"))
 print("Input shape:", (1, num_samples), "sample rate:", sample_rate)
 print("Class order:", sorted(export_labels, key=export_labels.get))
-''')
+''', {})
 
 add('markdown', r'''
-## 12. Build the export-compatible log-mel frontend
-
-Replace the complex STFT with fixed real-valued convolution filters. Windowing,
-reflection padding, mel filters, and the logarithm use the training frontend's
-parameters. This implementation supports the settings checked below; unsupported
-settings fail explicitly. This is a full-window frontend, not a streaming frontend.
-''')
+## 12. Frontend для экспорта
+''', {})
 
 add('code', r'''
 import torch.nn.functional as F
@@ -438,15 +441,11 @@ class ExportableLogMelFrontend(nn.Module):
 
 
 export_frontend = ExportableLogMelFrontend(reference_frontend).eval()
-''')
+''', {})
 
 add('markdown', r'''
-## 13. Check frontend and classifier equivalence
-
-Use deterministic silence, noise, and sine-wave inputs. These numerical checks
-detect conversion regressions; real recording quality is measured in section 16.
-Do not export if the comparisons fail.
-''')
+## 13. Проверка эквивалентности frontend
+''', {})
 
 add('code', r'''
 generator = torch.Generator().manual_seed(42)
@@ -469,15 +468,11 @@ with torch.inference_mode():
         torch.testing.assert_close(actual_logits, expected_logits, atol=1e-3, rtol=1e-3)
         print(name, "max feature difference:", (actual_features - expected_features).abs().max().item())
 print("Frontend equivalence checks passed.")
-''')
+''', {})
 
 add('markdown', r'''
-## 14. Export one waveform-to-logits TFLite model
-
-The model includes the frontend and classifier. Input: float32 `[1, num_samples]`;
-output: float32 logits `[1, num_classes]`. This is FP32 export, not quantization.
-An existing export is not overwritten; choose a new path to keep multiple versions.
-''')
+## 14. Экспорт TFLite
+''', {})
 
 add('code', r'''
 import litert_torch
@@ -499,15 +494,14 @@ with torch.no_grad():
     edge_model = litert_torch.convert(export_model, (example_audio,))
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 edge_model.export(str(TFLITE_PATH))
+save_measurement(EXPORT_DIR, "tflite_export", {"checkpoint": CHECKPOINT_PATH, "model": TFLITE_PATH},
+                 sample_rate=sample_rate, window_seconds=window_seconds, labels=export_labels)
 print("Saved:", TFLITE_PATH)
-''')
+''', {})
 
 add('markdown', r'''
-## 15. Verify the saved TFLite model against PyTorch
-
-Load the actual exported file and compare its logits against the original training
-frontend and classifier. Check both input and output contracts before evaluation.
-''')
+## 15. Проверка экспортированной модели
+''', {})
 
 add('code', r'''
 import numpy as np
@@ -523,6 +517,7 @@ assert tuple(input_info["shape"]) == (1, num_samples)
 assert tuple(output_info["shape"]) == (1, num_classes)
 assert input_info["dtype"] == output_info["dtype"] == np.float32
 
+equivalence = []
 with torch.inference_mode():
     for name, batch in checks.items():
         for i in range(len(batch)):
@@ -533,18 +528,20 @@ with torch.inference_mode():
             actual = interpreter.get_tensor(output_info["index"])
             assert np.isfinite(actual).all()
             np.testing.assert_allclose(actual, expected, atol=1e-3, rtol=1e-3)
-            print(f"{name}[{i}]: max logit difference={np.max(np.abs(expected - actual)):.6g}")
+            difference = float(np.max(np.abs(expected - actual)))
+            equivalence.append({"input": name, "item": i, "max_logit_difference": difference})
+            print(f"{name}[{i}]: max logit difference={difference:.6g}")
+EQUIVALENCE_DIR = measurement_dir("equivalence")
+save_measurement(EQUIVALENCE_DIR, "tflite_equivalence",
+    {"checkpoint": CHECKPOINT_PATH, "model": TFLITE_PATH}, atol=1e-3, rtol=1e-3)
+(EQUIVALENCE_DIR / "metrics.json").write_text(
+    json.dumps({"passed": True, "checks": equivalence}, indent=2, allow_nan=False), encoding="utf-8")
 print("Saved TFLite model equivalence checks passed.")
-''')
+''', {})
 
 add('markdown', r'''
-## 16. Evaluate TFLite on the dataset
-
-Use the dataset extracted in section 4. Check its class mapping against the checkpoint.
-The frontend is already inside the model, so no external frontend is passed to the
-CLI. Use a new report directory for each evaluation. These are clip metrics, not
-false positives per hour or streaming latency.
-''')
+## 16. TFLite: оценка на датасете
+''', {})
 
 add('code', r'''
 dataset_labels = json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8"))
@@ -552,6 +549,7 @@ if dataset_labels != export_labels:
     raise ValueError("Dataset label mapping differs from the checkpoint")
 if TFLITE_SPLIT not in {"val", "test"}:
     raise ValueError("Choose val or test for TFLite evaluation")
+TFLITE_REPORT_DIR = measurement_dir(f"tflite/{TFLITE_SPLIT}")
 run([sys.executable, REPO / "scripts/evaluate_tflite.py",
      "--model", TFLITE_PATH, "--dataset-root", DATA_ROOT,
      "--split", TFLITE_SPLIT, "--sample-rate", sample_rate,
@@ -559,9 +557,251 @@ run([sys.executable, REPO / "scripts/evaluate_tflite.py",
      "--label-smoothing", export_config["training"].get("label_smoothing", 0.0),
      "--output-dir", TFLITE_REPORT_DIR], cwd=REPO)
 print("TFLite reports:", TFLITE_REPORT_DIR)
-''')
 
-notebook = dict(cells=cells, metadata={'kernelspec': {'display_name': 'Python 3', 'name': 'python3'}, 'language_info': {'name': 'python'}, 'accelerator': 'GPU', 'colab': {'name': 'ru_kws_training.ipynb', 'provenance': [], 'gpuType': 'T4'}}, nbformat=4, nbformat_minor=5)
+save_measurement(TFLITE_REPORT_DIR, "tflite_clips",
+    {"checkpoint": CHECKPOINT_PATH, "model": TFLITE_PATH,
+     "manifest": DATA_ROOT / "splits" / f"{TFLITE_SPLIT}.jsonl"},
+    split=TFLITE_SPLIT, dataset_archive_sha256=dataset_archive_hash)
+''', {})
+
+add('markdown', r'''
+## 17. TFLite: отдельные записи диктофона
+''', {})
+
+add('code', r'''
+import json
+from pathlib import Path
+from collections import Counter
+
+RECORDINGS, recordings_archive_hash = extract_cached(
+    RECORDINGS_ZIP,
+    Path("/content/real_recordings"),
+)
+print("Recordings:", RECORDINGS)
+''', {})
+
+add('code', r'''
+import json
+from pathlib import Path
+from collections import Counter
+
+rows = []
+for manifest in sorted(RECORDINGS.rglob("manifest.jsonl")):
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("accepted") is not True or row.get("error"):
+            continue
+
+        wav = manifest.parent / row["wav"]
+        if not wav.is_file():
+            raise FileNotFoundError(wav)
+        if row["label"] not in export_labels:
+            raise ValueError(f"Unknown label: {row['label']}")
+
+        rows.append({
+            "path": wav.relative_to(RECORDINGS).as_posix(),
+            "label": row["label"],
+        })
+
+if not rows:
+    raise ValueError("No accepted recordings found; check RECORDINGS")
+
+# Temporary evaluation metadata; original recordings remain unchanged.
+EVAL_META = Path("/content/recorder_eval")
+EVAL_META.mkdir(exist_ok=True)
+
+(EVAL_META / "clips.jsonl").write_text(
+    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+    encoding="utf-8",
+)
+(EVAL_META / "labels.json").write_text(
+    json.dumps(export_labels, ensure_ascii=False, indent=2),
+    encoding="utf-8",
+)
+
+print("Clips:", len(rows))
+print(Counter(row["label"] for row in rows))
+''', {})
+
+add('code', r'''
+from datetime import datetime
+
+REPORT_DIR = measurement_dir("recorder_clips")
+
+run([
+    sys.executable, str(REPO / "scripts/evaluate_tflite.py"),
+    "--model", str(TFLITE_PATH),
+    "--dataset-root", str(RECORDINGS),
+    "--manifest", str(EVAL_META / "clips.jsonl"),
+    "--labels", str(EVAL_META / "labels.json"),
+    "--split", "test",
+    "--sample-rate", str(sample_rate),
+    "--window-seconds", str(window_seconds),
+    "--resample",
+    "--long-commands", "skip",
+    "--output-kind", "logits",
+    "--label-smoothing", "0",
+    "--output-dir", str(REPORT_DIR),
+])
+
+save_measurement(REPORT_DIR, "recorder_clips", {"checkpoint": CHECKPOINT_PATH,
+    "model": TFLITE_PATH, "manifest": EVAL_META / "clips.jsonl"},
+    archive_sha256=recordings_archive_hash)
+for name in ("clips.jsonl", "labels.json"):
+    (REPORT_DIR / name).write_bytes((EVAL_META / name).read_bytes())
+print("Results:", REPORT_DIR)
+''', {})
+
+add('code', r'''
+run([sys.executable, "-m", "pip", "install", "pandas"])
+import pandas as pd
+
+display(pd.read_csv(
+    REPORT_DIR / "confusion_matrix.csv",
+    index_col=0,
+))
+
+predictions = pd.read_csv(REPORT_DIR / "predictions.csv")
+display(predictions.loc[
+    predictions["correct"] == 0,
+    ["path", "true_label", "predicted_label"]
+])
+''', {})
+
+add('code', r'''
+df = pd.read_csv(REPORT_DIR / "predictions.csv")
+
+df["confidence"] = [
+    row[f"p_{row['predicted_label']}"]
+    for _, row in df.iterrows()
+]
+df["true_class_probability"] = [
+    row[f"p_{row['true_label']}"]
+    for _, row in df.iterrows()
+]
+
+columns = [
+    "path", "true_label", "predicted_label",
+    "confidence", "true_class_probability",
+    "p_unknown", "p_background",
+]
+
+display(
+    df[columns].style.format({
+        "confidence": "{:.1%}",
+        "true_class_probability": "{:.1%}",
+        "p_unknown": "{:.1%}",
+        "p_background": "{:.1%}",
+    })
+)
+''', {})
+
+add('markdown', r'''
+## 18. Длинная запись: аудио и разметка
+''', {})
+
+add('code', r'''
+run([sys.executable, "-m", "pip", "install", "ai-edge-litert", "scipy", "tqdm", "pandas", "matplotlib"])
+CHECKPOINT_PATH = saved_path("checkpoints", "best.pt")
+checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=True)
+if checkpoint.get("format_version") != 1:
+    raise ValueError("Unsupported checkpoint format")
+# EXISTING_TFLITE_PATH allows this section to run without export cells.
+if EXISTING_TFLITE_PATH:
+    TFLITE_PATH = Path(EXISTING_TFLITE_PATH)
+if "TFLITE_PATH" not in globals() or not TFLITE_PATH.is_file():
+    raise FileNotFoundError("Export the model or set EXISTING_TFLITE_PATH")
+labels = checkpoint["labels"]
+sample_rate = int(checkpoint["config"]["audio"]["sample_rate"])
+window_seconds = float(checkpoint["config"]["audio"]["window_seconds"])
+RECORDINGS, archive_hash = extract_cached(RECORDINGS_ZIP, Path("/content/real_recordings"))
+if CONTINUOUS_WAV:
+    WAV = (RECORDINGS / CONTINUOUS_WAV).resolve()
+    if not WAV.is_relative_to(RECORDINGS.resolve()) or not WAV.is_file():
+        raise ValueError("CONTINUOUS_WAV must select a file inside the extracted archive")
+else:
+    candidates = sorted(RECORDINGS.rglob("continuous.wav"))
+    if len(candidates) != 1:
+        raise ValueError(f"Set CONTINUOUS_WAV to a relative path: {[str(p.relative_to(RECORDINGS)) for p in candidates]}")
+    WAV = candidates[0]
+reviewed = WAV.with_name(WAV.stem + ".reviewed.json")
+ANNOTATIONS = reviewed if reviewed.exists() else WAV.with_suffix(".json")
+LABELS = Path("/content/continuous_labels.json")
+LABELS.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
+print("Model:", TFLITE_PATH)
+print("WAV:", WAV)
+print("Annotations:", ANNOTATIONS)
+''', {})
+
+add('markdown', r'''
+## 19. Длинная запись: запуск измерения
+''', {})
+
+add('code', r'''
+REPORT_DIR = measurement_dir("continuous")
+command = [sys.executable, str(REPO / 'scripts/evaluate_continuous_tflite.py'),
+    '--model', str(TFLITE_PATH), '--wav', str(WAV), '--annotations', str(ANNOTATIONS),
+    '--labels', str(LABELS), '--output-dir', str(REPORT_DIR),
+    '--sample-rate', str(sample_rate), '--window-seconds', str(window_seconds),
+    '--hop-seconds', str(HOP_SECONDS), '--resample', '--output-kind', 'logits',
+    '--threshold', str(THRESHOLD), '--min-consecutive', str(MIN_CONSECUTIVE),
+    '--release-seconds', str(RELEASE_SECONDS), '--cooldown-seconds', str(COOLDOWN_SECONDS),
+    '--early-tolerance', str(EARLY_TOLERANCE), '--late-tolerance', str(LATE_TOLERANCE),
+    '--print-predictions']
+if ALLOW_DRAFT:
+    command.append('--allow-draft')
+run(command, cwd=REPO)
+print('Saved to Drive:', REPORT_DIR)
+
+save_measurement(REPORT_DIR, "continuous_tflite", {"checkpoint": CHECKPOINT_PATH,
+    "model": TFLITE_PATH, "wav": WAV, "annotations": ANNOTATIONS},
+    archive_sha256=archive_hash, threshold=THRESHOLD, hop_seconds=HOP_SECONDS,
+    min_consecutive=MIN_CONSECUTIVE, release_seconds=RELEASE_SECONDS,
+    cooldown_seconds=COOLDOWN_SECONDS, early_tolerance=EARLY_TOLERANCE,
+    late_tolerance=LATE_TOLERANCE, allow_draft=ALLOW_DRAFT)
+''', {})
+
+add('markdown', r'''
+## 20. Длинная запись: метрики и временная шкала
+''', {})
+
+add('code', r'''
+import pandas as pd
+import matplotlib.pyplot as plt
+
+metrics = json.loads((REPORT_DIR / 'metrics.json').read_text(encoding='utf-8'))
+print('PROVISIONAL:', metrics['provisional'])
+display(pd.Series({key: metrics[key] for key in ["tp", "fp", "fn", "precision", "recall", "f1",
+    "unmatched_detections_per_hour_full_recording", "median_latency_seconds"]}, name="value"))
+print("FP/hour: вся длительность записи. Задержка: от конца фразы, без времени вычислений.")
+display(pd.DataFrame(metrics['per_class']).T)
+events = pd.read_csv(REPORT_DIR / 'events.csv')
+detections = pd.read_csv(REPORT_DIR / 'detections.csv')
+windows = pd.read_csv(REPORT_DIR / 'windows.csv')
+display(events.style.format({'confidence': '{:.1%}', 'latency_seconds': '{:.3f}'}, na_rep='missed'))
+display(detections.style.format({'confidence': '{:.1%}', 'latency_seconds': '{:.3f}'}, na_rep='unmatched'))
+
+commands = list(metrics['per_class'])
+fig, axes = plt.subplots(len(commands), 1, figsize=(16, 2.3 * len(commands)), sharex=True, squeeze=False)
+for ax, label in zip(axes[:, 0], commands):
+    ax.plot(windows.end_seconds, windows['p_' + label], label='Window probability')
+    ax.axhline(metrics['config']['threshold'], color='gray', linestyle='--', label='Threshold')
+    for event in events[events.label == label].itertuples():
+        ax.axvspan(event.start_seconds, event.end_seconds, color='green', alpha=.18)
+    selected = detections[detections.label == label]
+    ax.scatter(selected.time_seconds, selected.confidence, marker='x', color='red', label='Emitted event')
+    ax.set(title=label, ylim=(0, 1), ylabel='Probability')
+axes[0, 0].legend(loc='upper right')
+axes[-1, 0].set_xlabel('Recording time, seconds (green = annotation)')
+fig.suptitle('PROVISIONAL: draft annotations' if metrics['provisional'] else 'Continuous evaluation')
+fig.tight_layout()
+fig.savefig(REPORT_DIR / 'timeline.png', dpi=150)
+plt.show()
+''', {})
+
+notebook = dict(cells=cells, metadata={'kernelspec': {'display_name': 'Python 3', 'name': 'python3'}, 'language_info': {'name': 'python'}, 'colab': {'name': 'ru_kws_training.ipynb', 'provenance': []}}, nbformat=4, nbformat_minor=5)
 destination = ROOT / "notebooks/ru_kws_training.ipynb"
 destination.parent.mkdir(parents=True, exist_ok=True)
 destination.write_text(json.dumps(notebook, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

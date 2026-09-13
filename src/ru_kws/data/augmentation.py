@@ -132,7 +132,31 @@ class BackgroundMix:
         self.excluded_ids = set(excluded_ids)
         self.cache, self.cache_size = OrderedDict(), cache_size
         train = [json.loads(s) for s in (self.root / 'splits/train.jsonl').read_text(encoding='utf-8').splitlines() if s.strip()]
-        rows = [r for r in train if r['label'] == 'background']
+        source_manifest = self.root / 'sources/background_manifest.jsonl'
+        sources = {}
+        if source_manifest.exists():
+            for line in source_manifest.read_text(encoding='utf-8').splitlines():
+                if line.strip():
+                    source = json.loads(line)
+                    if source['id'] in sources:
+                        raise ValueError(f"Duplicate background source: {source['id']}")
+                    sources[source['id']] = source
+
+        def allowed(row):
+            # Explicit exclusions win. Legacy/procedural rows without a parent
+            # remain eligible; source crops require explicit source permission.
+            if row.get('use_for_mixing', True) is not True:
+                return False
+            parent = row.get('parent_id')
+            if parent in sources:
+                return sources[parent].get('use_for_mixing') is True
+            if row.get('sample_kind') == 'procedural_noise':
+                return True
+            if parent:
+                return False
+            return row.get('sample_kind') != 'source_crop'
+
+        rows = [r for r in train if r['label'] == 'background' and allowed(r)]
         if not rows or any(r.get('split', 'train') != 'train' for r in rows):
             raise ValueError('Missing or invalid train background pool')
         self.paths = [audio_path(root, r['path']) for r in rows]

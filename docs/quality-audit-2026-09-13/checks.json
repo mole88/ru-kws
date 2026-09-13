@@ -1,0 +1,188 @@
+{
+  "nonfinite": {
+    "nan_logits_accuracy": 1.0,
+    "nan_wav_validation_accepted": {
+      "train": {
+        "next": 1
+      },
+      "val": {
+        "next": 1
+      },
+      "test": {
+        "next": 1
+      }
+    }
+  },
+  "loader_integrity": {
+    "training_loaders_accept_identical_train_val": {
+      "train": 1,
+      "val": 1
+    },
+    "explicit_validator_rejects": "Split leakage: sha256=61534d282df723b6cd1bb2e490ca604fa95058e9e4e00947eae85f56c5ead605 in train and val"
+  },
+  "dataset": {
+    "root": "D:\\proj\\ru-kws\\datasets\\russian_commands_v001_clean_manual_with_aug\\russian_commands_v001_clean_manual",
+    "checks": {
+      "wav_files": 9980,
+      "nonfinite_files": 0,
+      "checksum_mismatches": 0,
+      "invalid_format": 0,
+      "duration_metadata_mismatches": 0
+    },
+    "invalid_examples": [],
+    "counts": {
+      "train": {
+        "background": 700,
+        "next": 699,
+        "stop_timer": 699,
+        "unknown": 2100,
+        "back": 692,
+        "repeat": 700,
+        "time_left": 700,
+        "start_timer": 697
+      },
+      "val": {
+        "background": 150,
+        "stop_timer": 149,
+        "next": 150,
+        "unknown": 450,
+        "time_left": 150,
+        "back": 144,
+        "repeat": 150,
+        "start_timer": 150
+      },
+      "test": {
+        "background": 150,
+        "back": 150,
+        "start_timer": 150,
+        "stop_timer": 150,
+        "next": 150,
+        "unknown": 450,
+        "time_left": 150,
+        "repeat": 150
+      }
+    },
+    "dropped_over_3_seconds": {
+      "train": {
+        "back": 7,
+        "time_left": 3,
+        "repeat": 2,
+        "start_timer": 8,
+        "stop_timer": 6,
+        "next": 2
+      },
+      "val": {
+        "start_timer": 1,
+        "repeat": 1,
+        "stop_timer": 7,
+        "back": 1
+      },
+      "test": {
+        "back": 1,
+        "start_timer": 2,
+        "repeat": 1
+      }
+    },
+    "cross_split_group_overlaps": {
+      "speaker_group": 0,
+      "parent_id": 0,
+      "source_group": 0,
+      "text_group": 0
+    },
+    "cross_split_pcm_duplicates": 0,
+    "background_pool_size": 700,
+    "forbidden_mixing_crops": 46,
+    "forbidden_source_ids": [
+      "local_b85eac0c023a5aff"
+    ],
+    "forbidden_example": "audio/background/background_02128c93d25d29acaa14aefe.wav",
+    "manifest_sha256": {
+      "train": "817423a2fd5b160ecf28df790bbcc1e634ab78d4b6778edd8816ac3c927b454c",
+      "val": "44bcfb937ca8547452062e7f6d20a251c656e88a19aff0044afb23c5740361d1",
+      "test": "53cb972469b75748ea4ced9227d586a3b261565218e82a91e21290db4cee6f3d"
+    }
+  },
+  "artifacts": {
+    "archives": {
+      "dist/continuous-evaluation-tools.zip": {
+        "changed_files": [],
+        "missing_features": [],
+        "sha256": "40f555e5ebc0d61366bb72c77fe3e59e8cbbc877ed9341dcfd0849fb730bcbe0"
+      },
+      "dist/ru-kws-source.zip": {
+        "changed_files": [
+          ".gitignore",
+          "notebooks\\ru_kws_training.ipynb",
+          "README.md",
+          "scripts\\build_colab.py",
+          "src\\ru_kws\\data\\collate.py",
+          "src\\ru_kws\\data\\dataset.py",
+          "src\\ru_kws\\data\\validate.py",
+          "src\\ru_kws\\evaluate.py",
+          "src\\ru_kws\\train.py",
+          "src\\ru_kws\\training\\engine.py"
+        ],
+        "missing_features": [
+          "src/ru_kws/data/augmentation.py",
+          "configs/augmented.yaml",
+          "src/ru_kws/data/filtering.py"
+        ],
+        "sha256": "9bc0f6f750ecf74003e2565e8f9d3f687e734ad56a3da210b41853645351cebb"
+      }
+    },
+    "source_sha256": {
+      "src\\ru_kws\\checkpoint.py": "fcfd6c280a216268ac5195c20e7dbf52a7cc7bd1be64e3a5292ce8f4e1059662",
+      "src\\ru_kws\\config.py": "21f120c10d642bc156dcd0a7a1afcd496344623c062cd6fac24fd62fd4d1a565",
+      "src\\ru_kws\\evaluate.py": "aa7e5dbd874036c3b1791dde1cbda8075acb8745cac318f4b8bb20950ce0cacc",
+      "src\\ru_kws\\train.py": "6c6d56752143b01e5ec82ae3f363013b8f8ccc712a6bb3fec2fec0497b76b3e1",
+      "src\\ru_kws\\__init__.py": "fcdfc5b429173b4347d6221f042a49c0c3960f3bac970e42c1039274335cc9a2",
+      "src\\ru_kws\\audio\\frontend.py": "7bff387a8c2ac9610f07b098bbcf32e20f73ce423576e9245544427e50c2329d",
+      "src\\ru_kws\\audio\\io.py": "a81921c50ac19fc05cfce04ed950484cc3f5d32cfc3b2385dc61bbe27aee4b91",
+      "src\\ru_kws\\audio\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src\\ru_kws\\data\\augmentation.py": "3f390de1b9b78373d81eda331fafbc22ed1e7d2f520257f3b23ab6551d1b915e",
+      "src\\ru_kws\\data\\collate.py": "a6b762526ed0813d9359f436d8b4b282902a670be3ca694200300a2c692c1603",
+      "src\\ru_kws\\data\\dataset.py": "93d25b09929a1c14826ef8248ba491e97bc3666b15508d1b5bae6beeedc1ca2c",
+      "src\\ru_kws\\data\\filtering.py": "4294cf1023dd67c615092cb3f030e2c96f3a4efbbd87ea88ced7a0ebd893d73a",
+      "src\\ru_kws\\data\\manifest.py": "784b8f65a7cb873848f3722b85da010d2839203cfce09d52440895dfed8bc374",
+      "src\\ru_kws\\data\\validate.py": "691dd90f250ed55ccb56fd948b455c9ee215002ec5ac39941a23191007679cfc",
+      "src\\ru_kws\\data\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src\\ru_kws\\evaluation\\clips.py": "52df4f88a8096c6092b63f927c8c11290a1ad205a4052eb095cf777267ee7fcf",
+      "src\\ru_kws\\evaluation\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src\\ru_kws\\models\\bcresnet.py": "1471c40c772c639e47cc2467c502d23581bd3fc1fd74e097ef91846299f42621",
+      "src\\ru_kws\\models\\factory.py": "d27efb58f8f3c54b49908e72f0abb6ad5be9fd05cb2fcb5e692a8199f1cfca84",
+      "src\\ru_kws\\models\\subspectralnorm.py": "183ae7653216fdf0a180f5470379569cb5fea3e1cdc863a4cf5dce4b9ec54446",
+      "src\\ru_kws\\models\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src\\ru_kws\\training\\engine.py": "56e8ffbe1a2cfa6efe7f878d53b9a8b88d872467a7550a2fbd780d9b5e4f7ae0",
+      "src\\ru_kws\\training\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scripts\\build_colab.py": "8cf6b92b454cbd22836560e23594fcacfdb21c61e9c088952fc4c4aa5324601c",
+      "scripts\\build_continuous_colab.py": "0ed31be14158487264b4244005f4e591d73b6be41d94a325d17f55ac863876ad",
+      "scripts\\evaluate_continuous_tflite.py": "1e8da730c804090638e1ca2adafbd0536b3ec9728a597676612455409fd701ba",
+      "scripts\\evaluate_tflite.py": "9f07e702283269f2c285ff8cd5463224633fd9fafa97f899bb8564b84b67dc2a",
+      "scripts\\package_source.py": "43ba0b30add0e13b1531f249ed31babd0c0a771624f5ed1ae4625ccb7aa9fe6f",
+      "scripts\\prepare_rirs.py": "b7685c1b0b9b324984cc38520ebd36f16ad63e09e7a2e289f8a326d2e0ba755a",
+      "tests\\test_augmentation.py": "5ef8857abe5f1b6fee4f3845005158a3802fc13616c52e111bea3159e6632194",
+      "tests\\test_cli.py": "69de7078a8651cfbd0944162bb93c07690a8a6bb83f03a3e96577cc6bd4bd45d",
+      "tests\\test_colab.py": "fc385bb5df5b525e53c88052c60d6e5185cf1bc5c167d5fa93c403dc4665668a",
+      "tests\\test_continuous_tflite.py": "ac3520b75d113303a252b8154dc5f65be1178392d0f8f5a88215f73cc08108a6",
+      "tests\\test_core.py": "a077864758645926609302a548174f461ffb7f3d3484e37ade26701f5d044d2d",
+      "tests\\test_filtering.py": "505f13c6fcef5111dd51414a504526c051c064a6f5afee0a79b37f7f8197cc81",
+      "tests\\test_notebook_export.py": "624a8e52d9a55808cfa72b58b0c297774e2cb245a8de6b5e6332268486c432e4",
+      "configs\\augmented.yaml": "5dfcec26196154aaf5870dc2f58aa6f6d11730f30b24506cbb12a8a3d70a9478",
+      "configs\\baseline.yaml": "0bb1e5fc51bc3b52faad13235482bf704509ee59ead3a9b92aa569c155184275",
+      "configs\\rir.yaml": "36d46c52b4e5765693e7ec2e4d7702a8b6b2bded08e6a4162f11b2e528cde907",
+      "notebooks\\continuous_tflite_evaluation.ipynb": "8ee370ced5bb5f934eb6a7a0190222381c24ef14029169a8ce1551b5209bbccd",
+      "notebooks\\ru_kws_training.ipynb": "7d1f72a1f6363fce5af4ef7c4fc7632a91cd24d23458072622196a7e039e2551",
+      "voice_recorder\\build_windows.py": "f718673afad41d3f33989550e48c431c1f13cc9f8838663e268582185ef694bb",
+      "voice_recorder\\record.py": "b7ecda478e1a9d972fb401a97daaf73aef4a46e7e8b4c429c0fe56665fab5c98",
+      "voice_recorder\\test_portable.py": "4c939e92d81dbf5c3ef122d0cdabcd5ab281df6a4ec0a9affd4a603bb461dc7a",
+      "voice_recorder\\test_record.py": "1f9c4aea076acfa63d392db90e01df4819d3d813815b80d454ccc9cbef194355",
+      "local_streaming_test\\app.py": "1c4015056267d322cb8c6e88a984b3669f5b136c5737f6f5ff7c689a6f2a13b4",
+      "local_streaming_test\\build_windows.py": "c39fde1b6630fc54c26633adf950b1eceb72c91808c3b7185d5a5ee9481900f2",
+      "local_streaming_test\\engine.py": "342dd3578fe5b773c6bd1017ba20fdd518ca4965234fbb0d2cdc30dfcf3a1ab2",
+      "local_streaming_test\\launcher.py": "fda7632c44fa219cf18a2992cf815b21dffed854c14f0910b7e06444d43bb4ee",
+      "local_streaming_test\\test_engine.py": "68e8512ce70a84544fa1c1d7cdcfdf7268eac8dcf0d71e20fc70f2ecfb915af2",
+      "local_streaming_test\\test_release.py": "257e1ca065f145b8a8d01b0269b085b829d33f924a740197b54345d507c740fa",
+      "local_streaming_test\\ui_smoke.py": "66e7aa937d03c75517716d4a68829f1fb18d5d69a8fd7b2a2ff2600c06e8caee"
+    }
+  }
+}

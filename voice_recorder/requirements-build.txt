@@ -1,0 +1,10 @@
+altgraph==0.17.5
+cffi==2.1.1
+packaging==26.3
+pefile==2024.8.26
+pycparser==3.0
+pyinstaller==6.19.0
+pyinstaller-hooks-contrib==2026.7
+pywin32-ctypes==0.2.3
+setuptools==84.0.0
+sounddevice==0.5.5

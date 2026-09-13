@@ -1,0 +1,132 @@
+{
+  "note": "Existing model, provenance not verified against a checkpoint; clip validation only.",
+  "model": "D:\\proj\\ru-kws\\local_streaming_test\\models\\bcresnet_with_frontend_fp32.tflite",
+  "model_sha256": "398ec1f633d22f7d31795652f4faee7779e0816dab0d1916d1bdb0caf00115bd",
+  "manifest_sha256": "44bcfb937ca8547452062e7f6d20a251c656e88a19aff0044afb23c5740361d1",
+  "class_order": [
+    "next",
+    "back",
+    "repeat",
+    "start_timer",
+    "stop_timer",
+    "time_left",
+    "unknown",
+    "background"
+  ],
+  "confusion_matrix": [
+    [
+      150,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      142,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      149,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      149,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      140,
+      0,
+      2,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      150,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      17,
+      0,
+      1,
+      430,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      150
+    ]
+  ],
+  "evaluated": 1483,
+  "accuracy": 0.9844908968307485,
+  "skipped": [
+    "audio/xtts/xtts_33ff1933b401a9b3d04c39c5.wav",
+    "audio/xtts/xtts_3576d37c5347f0071b5a87ff.wav",
+    "audio/xtts/xtts_45f95c2f07467521f418cea0.wav",
+    "audio/xtts/xtts_634af28e260565880b338150.wav",
+    "audio/xtts/xtts_6432a98709affedc89d55a6c.wav",
+    "audio/xtts/xtts_730b1d8929d04180c9b0c772.wav",
+    "audio/xtts/xtts_937e2160c13cae703fea1533.wav",
+    "audio/xtts/xtts_a82deb27886022bae7f330a6.wav",
+    "audio/xtts/xtts_b2c521a75711910d63ff20fb.wav",
+    "audio/xtts/xtts_c60f1eda9ba855ff6e371a55.wav"
+  ],
+  "recall": {
+    "next": 1.0,
+    "back": 0.993006993006993,
+    "repeat": 1.0,
+    "start_timer": 1.0,
+    "stop_timer": 0.9859154929577465,
+    "time_left": 1.0,
+    "unknown": 0.9555555555555556,
+    "background": 1.0
+  },
+  "silence_probabilities": {
+    "next": 0.1376761889260697,
+    "back": 0.12293593848688682,
+    "repeat": 0.17900838564664354,
+    "start_timer": 0.038179173864122784,
+    "stop_timer": 0.01609997306860186,
+    "time_left": 0.0313320836274876,
+    "unknown": 0.45250512428346745,
+    "background": 0.022263132096720376
+  }
+}

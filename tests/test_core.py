@@ -57,3 +57,32 @@ def test_validator_rejects_related_sources_across_splits(tmp_path):
         (tmp_path / "splits" / f"{split}.jsonl").write_text(json.dumps(row))
     with pytest.raises(ValueError, match="Split leakage: speaker_group"):
         validate_dataset(tmp_path)
+
+@pytest.mark.parametrize('value', [float('nan'), float('inf'), -float('inf')])
+def test_evaluation_rejects_nonfinite_logits(value):
+    from ru_kws.evaluation.clips import evaluate_clips
+    loader = [(torch.full((3, 2), value), torch.zeros(3, dtype=torch.long))]
+    with pytest.raises(ValueError, match='Nonfinite logits'):
+        evaluate_clips(torch.nn.Identity(), torch.nn.Identity(), loader, {'a': 0, 'b': 1}, 'cpu')
+
+
+def test_evaluation_rejects_wrong_output_shape():
+    from ru_kws.evaluation.clips import evaluate_clips
+    with pytest.raises(ValueError, match='Expected logits'):
+        evaluate_clips(torch.nn.Identity(), torch.nn.Identity(),
+                       [(torch.zeros(3, 1), torch.zeros(3, dtype=torch.long))], {'a': 0, 'b': 1}, 'cpu')
+
+
+@pytest.mark.parametrize('value', [float('nan'), float('inf'), -float('inf')])
+def test_validator_rejects_nonfinite_wav_with_valid_checksum(tmp_path, value):
+    import hashlib
+    (tmp_path / 'splits').mkdir()
+    (tmp_path / 'labels.json').write_text('{"next": 0}')
+    audio = np.zeros(70000, dtype=np.float32)
+    audio[-1] = value
+    path = tmp_path / 'bad.wav'
+    sf.write(path, audio, 16000, subtype='FLOAT')
+    row = {'path': path.name, 'label': 'next', 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+    (tmp_path / 'splits/train.jsonl').write_text(json.dumps(row))
+    with pytest.raises(ValueError, match='Nonfinite WAV'):
+        validate_dataset(tmp_path, window_seconds=5, splits=('train',))

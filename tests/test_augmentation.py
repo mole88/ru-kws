@@ -154,3 +154,21 @@ def test_engine_does_not_augment_validation():
     result = run_epoch(model, torch.nn.Identity(), [(torch.ones(2, 4), torch.zeros(2, dtype=torch.long))],
                        torch.nn.CrossEntropyLoss(), 'cpu', specaugment=Forbidden())
     assert result['count'] == 2
+
+
+def test_background_respects_source_and_crop_permissions(tmp_path):
+    row = noise_pool(tmp_path)
+    (tmp_path / 'sources').mkdir()
+    sources = [{'id': 'allowed', 'use_for_mixing': True}, {'id': 'banned', 'use_for_mixing': False}]
+    (tmp_path / 'sources/background_manifest.jsonl').write_text('\n'.join(map(json.dumps, sources)))
+    rows = [row]
+    for parent in ['allowed', 'banned', 'missing']:
+        rows.append({**row, 'path': f'{parent}.wav', 'parent_id': parent, 'sample_kind': 'source_crop'})
+    rows.append({**row, 'path': 'crop_banned.wav', 'parent_id': 'allowed', 'use_for_mixing': False})
+    rows.append({**row, 'path': 'orphan.wav', 'sample_kind': 'source_crop'})
+    rows.append({**row, 'path': 'procedural.wav', 'sample_kind': 'procedural_noise', 'parent_id': 'self'})
+    (tmp_path / 'splits/train.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+    assert {p.name for p in BackgroundMix(tmp_path).paths} == {'noise.wav', 'allowed.wav', 'procedural.wav'}
+    (tmp_path / 'splits/train.jsonl').write_text(json.dumps(rows[2]))
+    with pytest.raises(ValueError, match='background pool'):
+        BackgroundMix(tmp_path)

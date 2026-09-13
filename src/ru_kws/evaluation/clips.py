@@ -26,7 +26,12 @@ def evaluate_clips(model, frontend, loader, labels, device):
     frontend.eval()
     confusion = torch.zeros(len(labels), len(labels), dtype=torch.int64)
     for waveforms, targets in loader:
-        predictions = model(frontend(waveforms.to(device))).argmax(1).cpu()
+        logits = model(frontend(waveforms.to(device)))
+        if logits.shape != (len(targets), len(labels)):
+            raise ValueError(f"Expected logits [batch, {len(labels)}], got {tuple(logits.shape)}")
+        if not torch.isfinite(logits).all():
+            raise ValueError("Nonfinite logits (NaN or Inf) during evaluation")
+        predictions = logits.argmax(1).cpu()
         indices = targets * len(labels) + predictions
         confusion += torch.bincount(indices, minlength=len(labels) ** 2).reshape(len(labels), len(labels))
     return classification_metrics(confusion, labels)

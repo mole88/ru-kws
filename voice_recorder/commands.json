@@ -1,0 +1,8 @@
+[
+  {"label": "next", "text": "Дальше"},
+  {"label": "back", "text": "Назад"},
+  {"label": "repeat", "text": "Повторить"},
+  {"label": "start_timer", "text": "Запустить таймер"},
+  {"label": "stop_timer", "text": "Остановить таймер"},
+  {"label": "time_left", "text": "Сколько осталось"}
+]
