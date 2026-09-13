@@ -16,6 +16,7 @@ from ru_kws.data.dataset import make_loader
 from ru_kws.data.manifest import read_labels, manifest_hash
 from ru_kws.models.factory import build_model
 from ru_kws.training.engine import run_epoch
+from ru_kws.data.augmentation import build_specaugment
 
 
 def main():
@@ -55,6 +56,9 @@ def main():
     })
     model = build_model(config, len(labels)).to(device)
     frontend = build_frontend(config).to(device)
+    specaugment = build_specaugment(config)
+    if specaugment is not None:
+        specaugment = specaugment.to(device)
     settings = config["training"]
     optimizer = torch.optim.Adam(model.parameters(), lr=settings["learning_rate"])
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=settings["label_smoothing"])
@@ -66,7 +70,7 @@ def main():
         writer = csv.DictWriter(history, fieldnames=["epoch", "train_loss", "train_accuracy", "val_loss", "val_accuracy", "next_lr"])
         writer.writeheader()
         for epoch in range(1, settings["max_epochs"] + 1):
-            train_metrics = run_epoch(model, frontend, train_loader, criterion, device, optimizer)
+            train_metrics = run_epoch(model, frontend, train_loader, criterion, device, optimizer, specaugment)
             val_metrics = run_epoch(model, frontend, val_loader, criterion, device)
             scheduler.step(val_metrics["loss"])
             improved = val_metrics["loss"] < best_loss

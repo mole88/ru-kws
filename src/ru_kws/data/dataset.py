@@ -4,6 +4,7 @@ from ru_kws.data.filtering import filter_long_commands
 from ru_kws.audio.io import load_audio
 from ru_kws.data.manifest import audio_path, read_manifest
 from ru_kws.data.collate import PadCropCollate
+from ru_kws.data.augmentation import build_augmentation, build_speed_augmentation
 
 
 class AudioCommandsDataset(Dataset):
@@ -31,5 +32,7 @@ def make_loader(root, split, labels, config):
         collate_fn=PadCropCollate(
             round(config["audio"]["sample_rate"] * config["audio"]["window_seconds"]),
             command_ids, training=split == "train",
+            augmentation=build_augmentation(root, split, labels, config),
+            speed_augmentation=build_speed_augmentation(split, command_ids, config),
         ),
     )

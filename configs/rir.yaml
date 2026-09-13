@@ -1,0 +1,31 @@
+seed: 42
+audio:
+  sample_rate: 16000
+  window_seconds: 3.0
+frontend:
+  n_fft: 512
+  win_length: 480
+  hop_length: 160
+  n_mels: 40
+  power: 2.0
+  center: true
+  log_eps: 0.000001
+model:
+  name: bcresnet
+  base_c: 64
+training:
+  batch_size: 32
+  num_workers: 0
+  max_epochs: 30
+  learning_rate: 0.0003
+  label_smoothing: 0.1
+  early_stopping_patience: 8
+  scheduler_patience: 2
+
+augmentation:
+  reverb:
+    enabled: true
+    manifest: augmentation/mit_rirs/manifest.jsonl
+    probability: 0.5
+    max_rir_seconds: 1.0
+    exclude_labels: [background]
