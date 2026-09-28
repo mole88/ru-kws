@@ -327,8 +327,9 @@ def process_source(root, source_id, path, aligner):
     atomic_wav(context, audio)
     whole_label = next((label for label in labels if tokens(data["text"]) == tokens(COMMANDS[label])), None)
     use_whole = whole_label and config["min_seconds"] <= duration <= config["max_seconds"]
-    print(f"Source {duration:.2f}s; {'whole command' if use_whole else 'estimating word timestamps'}", flush=True)
-    words = [] if use_whole else aligner(audio)
+    mode = "whole command" if use_whole else "estimating word timestamps" if aligner else "manual bounds; no ASR"
+    print(f"Source {duration:.2f}s; {mode}", flush=True)
+    words = aligner(audio) if aligner is not None and not use_whole else []
     data.update(duration=duration, context_sha256=file_hash(context))
     with database(root) as db:
         for label in labels:
@@ -340,17 +341,17 @@ def process_source(root, source_id, path, aligner):
                 method = "whole_utterance" if use_whole else "whisper_words" if ranges else "manual_required"
                 db.execute("INSERT OR IGNORE INTO clips VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
                            (clip_id, source_id, label, *bounds, method,
-                            "" if ranges else "No valid ASR crop; set bounds manually or reject"))
+                            "" if ranges else "Set bounds manually or reject (ASR disabled)" if aligner is None
+                            else "No valid ASR crop; set bounds manually or reject"))
         db.execute("UPDATE sources SET status='ready', data=? WHERE id=?",
                    (json.dumps(data, ensure_ascii=False), source_id))
 
 
 def prepare(root, archive_path=None, aligner=None, limit=0, retry_errors=False):
-    """One source at a time. Each completed source is committed before the next."""
+    """One source at a time; default is transcript selection with manual bounds, no ASR."""
     settings(root)
     if limit < 0:
         raise ValueError("limit must be zero or positive")
-    aligner = aligner if aligner is not None else WhisperWords()
     with database(root) as db:
         if retry_errors:
             db.execute("UPDATE sources SET status='new' WHERE status='error'")
@@ -604,8 +605,10 @@ def main(argv=None):
     scan.add_argument("--max-per-speaker", type=int, default=30)
     prep = sub.add_parser("prepare")
     prep.add_argument("--archive", type=Path)
+    prep.add_argument("--alignment", choices=["manual", "whisper"], default="manual",
+                      help="Manual bounds by default; Whisper is optional")
     prep.add_argument("--model", default="small")
-    prep.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
+    prep.add_argument("--device", choices=["cuda", "cpu"], default="cpu")
     prep.add_argument("--limit", type=int, default=0, help="0 means all remaining sources")
     prep.add_argument("--retry-errors", action="store_true")
     sub.add_parser("status")
@@ -619,7 +622,8 @@ def main(argv=None):
         result = scan_archive(args.root, args.archive, **kwargs) if args.archive else scan_manifest(
             args.root, args.manifest, audio_root=args.audio_root, **kwargs)
     elif args.stage == "prepare":
-        aligner = WhisperWords(args.model, args.device, "int8_float16" if args.device == "cuda" else "int8")
+        aligner = None if args.alignment == "manual" else WhisperWords(
+            args.model, args.device, "int8_float16" if args.device == "cuda" else "int8")
         result = prepare(args.root, args.archive, aligner, args.limit, args.retry_errors)
     elif args.stage == "export":
         result = export_dataset(args.root, args.output_dir)

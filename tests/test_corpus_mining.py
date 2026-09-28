@@ -191,6 +191,28 @@ def test_bad_audio_and_expanding_quota_preserve_reviews(tmp_path):
     assert next(row for row in clips(root) if row["id"] == accepted)["status"] == "accepted"
 
 
+def test_default_cli_uses_transcripts_without_loading_asr(tmp_path, monkeypatch):
+    root = tmp_path / "state"
+    mining.initialize(root)
+    path = tmp_path / "train.jsonl"
+    (tmp_path / "short.wav").write_bytes(audio_bytes())
+    (tmp_path / "sentence.wav").write_bytes(audio_bytes(4))
+    manifest(path, [dict(audio_filepath="short.wav", text="Назад"),
+                    dict(audio_filepath="sentence.wav", text="Теперь запустить таймер")])
+    mining.scan_manifest(root, path)
+    monkeypatch.setattr(mining, "WhisperWords", lambda *args, **kwargs: pytest.fail("No ASR model allowed"))
+    result = mining.main(["--root", str(root), "prepare"])
+    assert result["sources"] == {"ready": 2}
+    rows = clips(root)
+    whole = next(row for row in rows if row["label"] == "back")
+    manual = next(row for row in rows if row["label"] == "start_timer")
+    assert whole["method"] == "whole_utterance" and whole["start"] == 0
+    assert manual["method"] == "manual_required" and manual["start"] is None
+    assert "ASR disabled" in manual["note"]
+    mining.decide(root, manual["id"], "accepted", 1, 2)
+    assert mining.export_dataset(root, tmp_path / "export")["counts"] == {"start_timer": 1}
+
+
 def test_notebook_has_compilable_thin_cells():
     notebook = Path(__file__).resolve().parents[1] / "notebooks/corpus_command_mining.ipynb"
     data = json.loads(notebook.read_text(encoding="utf-8"))

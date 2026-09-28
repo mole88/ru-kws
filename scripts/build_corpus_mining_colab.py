@@ -18,7 +18,8 @@ def build():
     add("markdown", """
     # Mine real Russian commands from a speech corpus
 
-    Transcript search → candidate timestamps → listening review → training additions.
+    Transcript search → listening and crop review → training additions.
+    **The default workflow runs entirely on CPU. No GPU quota or ASR model is needed.**
     Nothing is accepted automatically. Exact timer phrases may be rare: the tool does
     not synthesize missing commands or count partial phrases as positive examples.
     Existing synthetic tests and Vanya remain separate and are never modified.
@@ -38,20 +39,29 @@ def build():
     drive.mount('/content/drive')
     output.enable_custom_widget_manager()
     REPO = Path('/content/ru-kws')
+    ALIGNMENT_MODE = 'manual'  # 'manual': CPU, no ASR; 'whisper': optional word timestamps
+    MODEL = 'small'           # used only with ALIGNMENT_MODE = 'whisper'
+    DEVICE = 'cpu'            # optional Whisper: 'cpu' or 'cuda' if you have GPU quota
+    if ALIGNMENT_MODE not in {'manual', 'whisper'}:
+        raise ValueError("ALIGNMENT_MODE must be 'manual' or 'whisper'")
     if not (REPO / '.git').exists():
         subprocess.run(['git', 'clone', '--branch', 'dev',
                         'https://github.com/mole88/ru-kws.git', str(REPO)], check=True)
     else:
         subprocess.run(['git', '-C', str(REPO), 'pull', '--ff-only'], check=True)
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q',
-                    'faster-whisper>=1.1,<2', 'soundfile>=0.12', 'scipy', 'ipywidgets',
-                    'nvidia-cublas-cu12', 'nvidia-cudnn-cu12>=9,<10'], check=True)
+    packages = ['soundfile>=0.12', 'scipy', 'ipywidgets']
+    if ALIGNMENT_MODE == 'whisper':
+        packages += ['faster-whisper>=1.1,<2']
+        if DEVICE == 'cuda':
+            packages += ['nvidia-cublas-cu12', 'nvidia-cudnn-cu12>=9,<10']
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *packages], check=True)
 
     # Child ASR processes receive CUDA library paths before Python starts.
-    import nvidia.cublas.lib, nvidia.cudnn.lib
-    cuda_dirs = [str(Path(next(iter(module.__path__))))
-                 for module in (nvidia.cublas.lib, nvidia.cudnn.lib)]
-    os.environ['LD_LIBRARY_PATH'] = ':'.join(cuda_dirs + [os.environ.get('LD_LIBRARY_PATH', '')])
+    if ALIGNMENT_MODE == 'whisper' and DEVICE == 'cuda':
+        import nvidia.cublas.lib, nvidia.cudnn.lib
+        cuda_dirs = [str(Path(next(iter(module.__path__))))
+                     for module in (nvidia.cublas.lib, nvidia.cudnn.lib)]
+        os.environ['LD_LIBRARY_PATH'] = ':'.join(cuda_dirs + [os.environ.get('LD_LIBRARY_PATH', '')])
     sys.path.insert(0, str(REPO / 'scripts'))
     import mine_corpus_commands as mining
 
@@ -66,8 +76,6 @@ def build():
     AUDIO_ROOT = MANIFEST.parent
     MAX_PER_LABEL = 1000  # shortlisted sources, not an accepted-clip quota
     MAX_PER_SPEAKER = 30  # applies only when the corpus supplies a speaker ID
-    MODEL = 'small'       # multilingual faster-whisper; use 'medium' if needed
-    DEVICE = 'cuda'       # Colab: Runtime → Change runtime type → T4 GPU
     PREPARE_LIMIT = 200   # sources per execution; 0 = all remaining
     RETRY_ERRORS = False
     EXPORT_ROOT = ROOT.parent / 'golos_train_additions_v001'  # must be a new directory
@@ -119,22 +127,29 @@ def build():
     print(json.dumps(result, ensure_ascii=False, indent=2))
     """)
     add("markdown", """
-    ## 4. Prepare candidate crops (GPU for word timestamps)
+    ## 4. Prepare candidates (CPU by default, no ASR)
 
     Short utterances whose full transcript is exactly a command need no ASR.
-    Other candidates use [faster-whisper word timestamps](https://github.com/SYSTRAN/faster-whisper#word-level-timestamps).
-    These are estimates, not forced alignment or a guarantee of the correct phrase.
-    No match → manual alignment candidate. Nothing is auto-accepted.
+    With `ALIGNMENT_MODE = 'manual'`, longer sentences containing a target phrase
+    are saved for listening; you select crop start/end in stage 5. Corpus transcripts
+    identify the phrase but do not provide word boundaries. No model is downloaded
+    or loaded. Short whole-command utterances already have full-recording bounds.
+
+    Optional `ALIGNMENT_MODE = 'whisper'` estimates boundaries with
+    [faster-whisper word timestamps](https://github.com/SYSTRAN/faster-whisper#word-level-timestamps).
+    This also works with `DEVICE = 'cpu'`, but runs more slowly. These are estimates,
+    not forced alignment or a guarantee of the correct phrase. Nothing is auto-accepted.
 
     **Resume:** reconnect Drive, rerun setup and this stage with the same `ROOT`.
     Saved candidates and decisions are skipped. You can stop a running cell; the
-    current source may be repeated, while completed sources stay saved. The model
-    loads only when needed, after the remaining-source count is printed. ASR runs
-    in a child process so CUDA library paths are set before Python starts.
+    current source may be repeated, while completed sources stay saved. Changing
+    alignment mode affects unprocessed sources; existing clips and decisions remain.
+    Optional ASR runs in a child process so CUDA library paths are set before Python starts.
     """)
     add("code", """
     command = [sys.executable, '-u', str(REPO / 'scripts/mine_corpus_commands.py'),
                '--root', str(ROOT), 'prepare', '--model', MODEL, '--device', DEVICE,
+               '--alignment', ALIGNMENT_MODE,
                '--limit', str(PREPARE_LIMIT)]
     if SOURCE_MODE == 'archive' and ARCHIVE.exists():
         command += ['--archive', str(ARCHIVE)]
@@ -194,7 +209,7 @@ def build():
     notebook = dict(cells=cells, metadata=dict(
         colab=dict(name="corpus_command_mining.ipynb", provenance=[]),
         kernelspec=dict(display_name="Python 3", language="python", name="python3"),
-        language_info=dict(name="python"), accelerator="GPU"), nbformat=4, nbformat_minor=5)
+        language_info=dict(name="python")), nbformat=4, nbformat_minor=5)
     path = Path(__file__).resolve().parents[1] / "notebooks/corpus_command_mining.ipynb"
     path.write_text(json.dumps(notebook, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return path
