@@ -90,4 +90,7 @@ Sources: saved configs, histories and reports in the supplied September 28 run a
 Dataset roots contain `labels.json`, `splits/{train,val,test}.jsonl` and audio files.
 Vanya uses a separate `evaluation/vanya_test.jsonl`, outside all training/dataset splits.
 
+[Corpus mining in Colab](https://colab.research.google.com/github/mole88/ru-kws/blob/dev/notebooks/corpus_command_mining.ipynb):
+search transcripts, review command crops by listening, export accepted training additions; resume state stays on Drive.
+
 [Voice recorder](voice_recorder/README.md)
