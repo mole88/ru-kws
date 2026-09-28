@@ -125,6 +125,43 @@ class ContinuousTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 evaluator.main(args)
 
+    def test_negative_podcast_downmixes_and_counts_every_detection_as_fp(self):
+        captured = []
+
+        class Runtime:
+            def __init__(self, **kwargs): pass
+            def allocate_tensors(self): pass
+            def get_input_details(self):
+                return [dict(shape=np.array([1, 48000]), dtype=np.float32, index=0)]
+            def get_output_details(self):
+                return [dict(shape=np.array([1, 2]), dtype=np.float32, index=1)]
+            def set_tensor(self, index, data): captured.append(data.copy())
+            def invoke(self): pass
+            def get_tensor(self, index): return np.array([[.9, .1]], dtype=np.float32)
+
+        module=types.ModuleType('ai_edge_litert.interpreter')
+        module.Interpreter=Runtime
+        with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {'ai_edge_litert.interpreter':module}):
+            root=Path(temp)
+            sf.write(root/'podcast.wav', np.tile([.1, .3], (32000, 1)), 16000)
+            (root/'model.tflite').write_bytes(b'test runtime')
+            (root/'labels.json').write_text(json.dumps(dict(next=0, unknown=1)))
+            args=['--model',str(root/'model.tflite'),'--wav',str(root/'podcast.wav'),
+                  '--labels',str(root/'labels.json'),'--output-dir',str(root/'report'),
+                  '--negative-only','--mono','mean','--output-kind','probabilities']
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                evaluator.main(args)
+            metrics=json.loads((root/'report/metrics.json').read_text())
+            self.assertEqual((metrics['tp'],metrics['fp'],metrics['fn']), (0,1,0))
+            self.assertEqual(metrics['false_positives_per_hour'],1800)
+            self.assertEqual(metrics['evaluation_mode'],'negative_only')
+            self.assertEqual(metrics['annotation_status'],'assumed_command_free')
+            self.assertTrue(metrics['provisional'])
+            self.assertNotIn('annotations',metrics['hashes'])
+            self.assertAlmostEqual(float(captured[-1][0,-1000:].mean()),.2,places=3)
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                evaluator.parser().parse_args(args+['--annotations','annotations.json'])
+
 
 if __name__ == '__main__':
     unittest.main()

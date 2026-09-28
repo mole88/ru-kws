@@ -6,6 +6,7 @@ from textwrap import dedent
 ROOT = Path(__file__).resolve().parents[1]
 cells = []
 
+
 def add(kind, source, metadata=None):
     cell = dict(cell_type=kind, metadata=metadata or {}, id=f"cell-{len(cells):02d}",
                 source=dedent(source).strip() + "\n")
@@ -19,6 +20,9 @@ add('markdown', r'''
 # Russian KWS
 ''', {})
 
+add('markdown', '## 1. Setup')
+add('markdown', '### 1.1 Configuration')
+
 add('code', r'''
 from pathlib import Path
 import sys, os, json, subprocess, hashlib, zipfile, tempfile, stat, csv
@@ -27,33 +31,25 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 REPO_URL = "https://github.com/mole88/ru-kws.git"
-REPO_REF = "dev"  # Use a commit SHA for reproducibility.
-DATASET_ZIP = Path("/content/drive/MyDrive/russian_commands/russian_commands_v001_clean_manual_with_aug.zip")
-
-RUN_NAME = "bcresnet_run_004"
+REPO_REF = "dev"
+DATASET_ZIP = Path("/content/drive/MyDrive/russian_commands/russian_commands_v003_clean.zip")
+RUN_NAME = "bcresnet_clean_v003_001"
 RUNS_ROOT = Path("/content/drive/MyDrive/russian_commands/runs")
 BASE_CONFIG = "augmented.yaml"
 WINDOW_SECONDS = 3.0
-BASE_C = 64                   # 8/12/16/24/48/64; 64 - BC-ResNet-8
+BASE_C = 64
 BATCH_SIZE = 64
 MAX_EPOCHS = 120
 LEARNING_RATE = 3e-4
-REQUIRE_GPU = torch.cuda.is_available()
+REQUIRE_GPU = False
 
-RUN_FINAL_TEST = False
-TFLITE_SPLIT = "val"
-RECORDINGS_ZIP = Path("/content/drive/MyDrive/russian_commands/recordings.zip")
-# Set a path to reuse an export; None creates a new export directory.
+# Evaluation-only sessions: set RUN_NAME to the candidate's saved run and supply its export.
 EXISTING_TFLITE_PATH = None
-CONTINUOUS_WAV = None  # Relative path inside RECORDINGS_ZIP; None auto-selects one recording.
-THRESHOLD = 0.5
-HOP_SECONDS = 0.1
-MIN_CONSECUTIVE = 2
-RELEASE_SECONDS = 0.3
-COOLDOWN_SECONDS = 1.0
-EARLY_TOLERANCE = 0.0
-LATE_TOLERANCE = 1.0
-ALLOW_DRAFT = True  # Draft annotation metrics are provisional.
+RUN_FINAL_TEST = False
+RUN_VANYA_TEST = False
+RUN_CONTINUOUS_TESTS = False
+RUN_PODCAST_TEST = False
+RUN_BASELINE_COMPARISON = False
 
 if not RUN_NAME or Path(RUN_NAME).name != RUN_NAME or RUN_NAME in {".", ".."}:
     raise ValueError("RUN_NAME must be a single directory name")
@@ -65,7 +61,7 @@ print("Run path:", RUN_DIR)
 ''', {})
 
 add('markdown', r'''
-## 1. Google Drive
+### 1.2 Mount Google Drive
 ''', {})
 
 add('code', r'''
@@ -74,7 +70,7 @@ drive.mount("/content/drive")
 ''', {})
 
 add('markdown', r'''
-## 2. Код проекта
+### 1.3 Project and evaluation tools
 ''', {})
 
 add('code', r'''
@@ -147,18 +143,25 @@ run(["git", "clone", "--filter=blob:none", "--no-checkout", REPO_URL, REPO])
 run(["git", "fetch", "--depth", "1", "origin", REPO_REF], cwd=REPO)
 run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=REPO)
 revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+for script_name in ["evaluate_tflite.py", "compare_tflite_models.py", "evaluate_continuous_tflite.py"]:
+    if not (REPO / "scripts" / script_name).is_file():
+        raise FileNotFoundError(f"Missing evaluation script in {REPO_REF}: {script_name}")
 source_info = {"mode": "github", "url": REPO_URL, "requested_ref": REPO_REF, "revision": revision}
 print("Project:", REPO)
 print(json.dumps(source_info, ensure_ascii=False, indent=2))
 ''', {})
 
+
 add('markdown', r'''
-## 3. Окружение
+### 1.4 Environment
 ''', {})
 
 add('code', r'''
-run([sys.executable, "-m", "pip", "install", "numpy>=1.24", "soundfile>=0.12", "PyYAML>=6", "matplotlib>=3.6", "packaging"])
+run([sys.executable, "-m", "pip", "install", "numpy>=1.24", "soundfile>=0.12", "PyYAML>=6", "matplotlib>=3.6", "packaging", "pandas", "scipy", "scikit-learn", "tqdm", "ai-edge-litert"])
 run([sys.executable, "-m", "pip", "install", "--no-deps", "-e", REPO])
+project_src = str(REPO / "src")
+if project_src not in sys.path:
+    sys.path.insert(0, project_src)
 probe = """
 import sys, json, torch, torchaudio
 from packaging.version import Version
@@ -181,7 +184,7 @@ run([sys.executable, "-c", "REQUIRE_GPU = " + repr(REQUIRE_GPU) + "\n" + probe])
 ''', {})
 
 add('markdown', r'''
-## 4. Датасет
+### 1.5 Load the locally cleaned dataset
 ''', {})
 
 add('code', r'''
@@ -189,11 +192,21 @@ unpacked, dataset_archive_hash = extract_cached(DATASET_ZIP, Path("/content/ru_k
 DATA_ROOT = find_root(unpacked, "labels.json", ["splits/train.jsonl", "splits/val.jsonl", "splits/test.jsonl"])
 print("Dataset:", DATA_ROOT)
 print("Labels:", json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8")))
+cleaning_path = DATA_ROOT / "cleaning_report.json"
+if not cleaning_path.is_file():
+    raise ValueError("Prepare a clean dataset locally with scripts/clean_dataset.py before evaluation")
+cleaning_report = json.loads(cleaning_path.read_text(encoding="utf-8"))
+if not cleaning_report.get("complete") or not cleaning_report.get("vanya_separate_test"):
+    raise ValueError("Rebuild the dataset with scripts/clean_dataset.py: Vanya must be a separate test")
+for manifest_name in ["synthetic_test.jsonl", "vanya_test.jsonl"]:
+    if not (DATA_ROOT / "evaluation" / manifest_name).is_file():
+        raise FileNotFoundError(manifest_name)
 ''', {})
 
 add('markdown', r'''
-## 5. Настройки обучения и проверка данных
+## 2. Training
 ''', {})
+add('markdown', '### 2.1 Configuration and strict data validation')
 
 add('code', r'''
 import yaml
@@ -210,7 +223,7 @@ run([sys.executable, "-m", "ru_kws.data.validate", "--data-root", DATA_ROOT,
 ''', {})
 
 add('markdown', r'''
-## 6. Обучение
+### 2.2 Train a new model
 ''', {})
 
 add('code', r'''
@@ -226,7 +239,7 @@ print("Best checkpoint:", saved_path("checkpoints", "best.pt"))
 ''', {})
 
 add('markdown', r'''
-## 7. Графики обучения
+### 2.3 Learning curves
 ''', {})
 
 add('code', r'''
@@ -248,8 +261,9 @@ plt.show()
 ''', {})
 
 add('markdown', r'''
-## 8. PyTorch: валидация
+## 3. PyTorch evaluation
 ''', {})
+add('markdown', '### 3.1 Evaluation and reporting helpers')
 
 add('code', r'''
 def evaluate_split(split):
@@ -291,12 +305,15 @@ def show_report(report):
     fig.savefig(Path(report["report_dir"]) / "confusion.png", dpi=150)
     plt.show()
 
+''', {})
+add('markdown', '### 3.2 Validation split')
+add('code', r'''
 val_report = evaluate_split("val")
 show_report(val_report)
 ''', {})
 
 add('markdown', r'''
-## 9. PyTorch: финальный тест
+### 3.3 Dataset final test
 ''', {})
 
 add('code', r'''
@@ -309,8 +326,9 @@ print("All results on Drive:", RUN_DIR)
 ''', {})
 
 add('markdown', r'''
-## 10. Зависимости TFLite
+## 4. TFLite export
 ''', {})
+add('markdown', '### 4.1 Export dependencies')
 
 add('code', r'''
 run([sys.executable, "-m", "pip", "install", "litert-torch", "ai-edge-litert",
@@ -318,7 +336,7 @@ run([sys.executable, "-m", "pip", "install", "litert-torch", "ai-edge-litert",
 ''', {})
 
 add('markdown', r'''
-## 11. Чекпоинт и пути экспорта
+### 4.2 Checkpoint and export paths
 ''', {})
 
 add('code', r'''
@@ -360,7 +378,7 @@ print("Class order:", sorted(export_labels, key=export_labels.get))
 ''', {})
 
 add('markdown', r'''
-## 12. Frontend для экспорта
+### 4.3 Exportable frontend
 ''', {})
 
 add('code', r'''
@@ -444,7 +462,7 @@ export_frontend = ExportableLogMelFrontend(reference_frontend).eval()
 ''', {})
 
 add('markdown', r'''
-## 13. Проверка эквивалентности frontend
+### 4.4 Frontend equivalence
 ''', {})
 
 add('code', r'''
@@ -471,7 +489,7 @@ print("Frontend equivalence checks passed.")
 ''', {})
 
 add('markdown', r'''
-## 14. Экспорт TFLite
+### 4.5 Export the waveform model
 ''', {})
 
 add('code', r'''
@@ -500,7 +518,7 @@ print("Saved:", TFLITE_PATH)
 ''', {})
 
 add('markdown', r'''
-## 15. Проверка экспортированной модели
+### 4.6 Verify exported inference
 ''', {})
 
 add('code', r'''
@@ -539,269 +557,279 @@ save_measurement(EQUIVALENCE_DIR, "tflite_equivalence",
 print("Saved TFLite model equivalence checks passed.")
 ''', {})
 
-add('markdown', r'''
-## 16. TFLite: оценка на датасете
-''', {})
-
+add('markdown', '## 5. Clip evaluation')
+add('markdown', '### 5.1 Evaluation model and report helpers')
 add('code', r'''
-dataset_labels = json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8"))
-if dataset_labels != export_labels:
-    raise ValueError("Dataset label mapping differs from the checkpoint")
-if TFLITE_SPLIT not in {"val", "test"}:
-    raise ValueError("Choose val or test for TFLite evaluation")
-TFLITE_REPORT_DIR = measurement_dir(f"tflite/{TFLITE_SPLIT}")
-run([sys.executable, REPO / "scripts/evaluate_tflite.py",
-     "--model", TFLITE_PATH, "--dataset-root", DATA_ROOT,
-     "--split", TFLITE_SPLIT, "--sample-rate", sample_rate,
-     "--window-seconds", window_seconds, "--long-commands", "skip",
-     "--label-smoothing", export_config["training"].get("label_smoothing", 0.0),
-     "--output-dir", TFLITE_REPORT_DIR], cwd=REPO)
-print("TFLite reports:", TFLITE_REPORT_DIR)
-
-save_measurement(TFLITE_REPORT_DIR, "tflite_clips",
-    {"checkpoint": CHECKPOINT_PATH, "model": TFLITE_PATH,
-     "manifest": DATA_ROOT / "splits" / f"{TFLITE_SPLIT}.jsonl"},
-    split=TFLITE_SPLIT, dataset_archive_sha256=dataset_archive_hash)
-''', {})
-
-add('markdown', r'''
-## 17. TFLite: отдельные записи диктофона
-''', {})
-
-add('code', r'''
-import json
-from pathlib import Path
-from collections import Counter
-
-RECORDINGS, recordings_archive_hash = extract_cached(
-    RECORDINGS_ZIP,
-    Path("/content/real_recordings"),
-)
-print("Recordings:", RECORDINGS)
-''', {})
-
-add('code', r'''
-import json
-from pathlib import Path
-from collections import Counter
-
-rows = []
-for manifest in sorted(RECORDINGS.rglob("manifest.jsonl")):
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        if row.get("accepted") is not True or row.get("error"):
-            continue
-
-        wav = manifest.parent / row["wav"]
-        if not wav.is_file():
-            raise FileNotFoundError(wav)
-        if row["label"] not in export_labels:
-            raise ValueError(f"Unknown label: {row['label']}")
-
-        rows.append({
-            "path": wav.relative_to(RECORDINGS).as_posix(),
-            "label": row["label"],
-        })
-
-if not rows:
-    raise ValueError("No accepted recordings found; check RECORDINGS")
-
-# Temporary evaluation metadata; original recordings remain unchanged.
-EVAL_META = Path("/content/recorder_eval")
-EVAL_META.mkdir(exist_ok=True)
-
-(EVAL_META / "clips.jsonl").write_text(
-    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
-    encoding="utf-8",
-)
-(EVAL_META / "labels.json").write_text(
-    json.dumps(export_labels, ensure_ascii=False, indent=2),
-    encoding="utf-8",
-)
-
-print("Clips:", len(rows))
-print(Counter(row["label"] for row in rows))
-''', {})
-
-add('code', r'''
-from datetime import datetime
-
-REPORT_DIR = measurement_dir("recorder_clips")
-
-run([
-    sys.executable, str(REPO / "scripts/evaluate_tflite.py"),
-    "--model", str(TFLITE_PATH),
-    "--dataset-root", str(RECORDINGS),
-    "--manifest", str(EVAL_META / "clips.jsonl"),
-    "--labels", str(EVAL_META / "labels.json"),
-    "--split", "test",
-    "--sample-rate", str(sample_rate),
-    "--window-seconds", str(window_seconds),
-    "--resample",
-    "--long-commands", "skip",
-    "--output-kind", "logits",
-    "--label-smoothing", "0",
-    "--output-dir", str(REPORT_DIR),
-])
-
-save_measurement(REPORT_DIR, "recorder_clips", {"checkpoint": CHECKPOINT_PATH,
-    "model": TFLITE_PATH, "manifest": EVAL_META / "clips.jsonl"},
-    archive_sha256=recordings_archive_hash)
-for name in ("clips.jsonl", "labels.json"):
-    (REPORT_DIR / name).write_bytes((EVAL_META / name).read_bytes())
-print("Results:", REPORT_DIR)
-''', {})
-
-add('code', r'''
-run([sys.executable, "-m", "pip", "install", "pandas"])
 import pandas as pd
+from ru_kws.checkpoint import load_checkpoint
 
-display(pd.read_csv(
-    REPORT_DIR / "confusion_matrix.csv",
-    index_col=0,
-))
-
-predictions = pd.read_csv(REPORT_DIR / "predictions.csv")
-display(predictions.loc[
-    predictions["correct"] == 0,
-    ["path", "true_label", "predicted_label"]
-])
-''', {})
-
-add('code', r'''
-df = pd.read_csv(REPORT_DIR / "predictions.csv")
-
-df["confidence"] = [
-    row[f"p_{row['predicted_label']}"]
-    for _, row in df.iterrows()
-]
-df["true_class_probability"] = [
-    row[f"p_{row['true_label']}"]
-    for _, row in df.iterrows()
-]
-
-columns = [
-    "path", "true_label", "predicted_label",
-    "confidence", "true_class_probability",
-    "p_unknown", "p_background",
-]
-
-display(
-    df[columns].style.format({
-        "confidence": "{:.1%}",
-        "true_class_probability": "{:.1%}",
-        "p_unknown": "{:.1%}",
-        "p_background": "{:.1%}",
-    })
-)
-''', {})
-
-add('markdown', r'''
-## 18. Длинная запись: аудио и разметка
-''', {})
-
-add('code', r'''
-run([sys.executable, "-m", "pip", "install", "ai-edge-litert", "scipy", "tqdm", "pandas", "matplotlib"])
 CHECKPOINT_PATH = saved_path("checkpoints", "best.pt")
-checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=True)
-if checkpoint.get("format_version") != 1:
-    raise ValueError("Unsupported checkpoint format")
-# EXISTING_TFLITE_PATH allows this section to run without export cells.
+evaluation_checkpoint = load_checkpoint(CHECKPOINT_PATH)
+evaluation_labels = evaluation_checkpoint["labels"]
+evaluation_audio = evaluation_checkpoint["config"]["audio"]
+sample_rate = int(evaluation_audio["sample_rate"])
+window_seconds = float(evaluation_audio["window_seconds"])
+if evaluation_labels != json.loads((DATA_ROOT / "labels.json").read_text(encoding="utf-8")):
+    raise ValueError("Dataset labels differ from checkpoint labels")
+
 if EXISTING_TFLITE_PATH:
-    TFLITE_PATH = Path(EXISTING_TFLITE_PATH)
-if "TFLITE_PATH" not in globals() or not TFLITE_PATH.is_file():
-    raise FileNotFoundError("Export the model or set EXISTING_TFLITE_PATH")
-labels = checkpoint["labels"]
-sample_rate = int(checkpoint["config"]["audio"]["sample_rate"])
-window_seconds = float(checkpoint["config"]["audio"]["window_seconds"])
-RECORDINGS, archive_hash = extract_cached(RECORDINGS_ZIP, Path("/content/real_recordings"))
-if CONTINUOUS_WAV:
-    WAV = (RECORDINGS / CONTINUOUS_WAV).resolve()
-    if not WAV.is_relative_to(RECORDINGS.resolve()) or not WAV.is_file():
-        raise ValueError("CONTINUOUS_WAV must select a file inside the extracted archive")
+    ACTIVE_MODEL = Path(EXISTING_TFLITE_PATH)
+elif "TFLITE_PATH" in globals() and Path(TFLITE_PATH).is_file():
+    ACTIVE_MODEL = Path(TFLITE_PATH)
 else:
-    candidates = sorted(RECORDINGS.rglob("continuous.wav"))
-    if len(candidates) != 1:
-        raise ValueError(f"Set CONTINUOUS_WAV to a relative path: {[str(p.relative_to(RECORDINGS)) for p in candidates]}")
-    WAV = candidates[0]
-reviewed = WAV.with_name(WAV.stem + ".reviewed.json")
-ANNOTATIONS = reviewed if reviewed.exists() else WAV.with_suffix(".json")
-LABELS = Path("/content/continuous_labels.json")
-LABELS.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
-print("Model:", TFLITE_PATH)
-print("WAV:", WAV)
-print("Annotations:", ANNOTATIONS)
-''', {})
+    exports = sorted((RUN_DIR / "exports").glob("*/bcresnet_with_frontend_fp32.tflite"))
+    if len(exports) != 1:
+        raise ValueError(f"Set EXISTING_TFLITE_PATH; available exports: {exports}")
+    ACTIVE_MODEL = exports[0]
+if not ACTIVE_MODEL.is_file():
+    raise FileNotFoundError(ACTIVE_MODEL)
+EVAL_LABELS = Path("/content/evaluation_labels.json")
+EVAL_LABELS.write_text(json.dumps(evaluation_labels), encoding="utf-8")
 
-add('markdown', r'''
-## 19. Длинная запись: запуск измерения
-''', {})
+def evaluate_clip_manifest(name, manifest):
+    output = measurement_dir("clips/" + name)
+    run([sys.executable, REPO / "scripts/evaluate_tflite.py",
+         "--model", ACTIVE_MODEL, "--dataset-root", DATA_ROOT,
+         "--manifest", manifest, "--labels", EVAL_LABELS,
+         "--split", "val" if name == "validation" else "test",
+         "--sample-rate", sample_rate, "--window-seconds", window_seconds,
+         "--long-commands", "error", "--label-smoothing", "0", "--output-dir", output], cwd=REPO)
+    save_measurement(output, "clip_evaluation", {"model": ACTIVE_MODEL,
+        "checkpoint": CHECKPOINT_PATH, "manifest": manifest}, view=name)
+    return output
 
+def show_clip_report(output):
+    report = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    print("Evaluated:", report["evaluated"], "of", report["manifest_records"])
+    print("Accuracy:", round(report["accuracy"], 4))
+    display(pd.DataFrame(report["classification_report"]).T)
+    display(pd.read_csv(output / "confusion_matrix.csv", index_col=0))
+    print("Predictions:", output / "predictions.csv")
+
+print("Model:", ACTIVE_MODEL)
+''')
+add('markdown', '### 5.2 Validation clips')
 add('code', r'''
-REPORT_DIR = measurement_dir("continuous")
-command = [sys.executable, str(REPO / 'scripts/evaluate_continuous_tflite.py'),
-    '--model', str(TFLITE_PATH), '--wav', str(WAV), '--annotations', str(ANNOTATIONS),
-    '--labels', str(LABELS), '--output-dir', str(REPORT_DIR),
-    '--sample-rate', str(sample_rate), '--window-seconds', str(window_seconds),
-    '--hop-seconds', str(HOP_SECONDS), '--resample', '--output-kind', 'logits',
-    '--threshold', str(THRESHOLD), '--min-consecutive', str(MIN_CONSECUTIVE),
-    '--release-seconds', str(RELEASE_SECONDS), '--cooldown-seconds', str(COOLDOWN_SECONDS),
-    '--early-tolerance', str(EARLY_TOLERANCE), '--late-tolerance', str(LATE_TOLERANCE),
-    '--print-predictions']
-if ALLOW_DRAFT:
-    command.append('--allow-draft')
-run(command, cwd=REPO)
-print('Saved to Drive:', REPORT_DIR)
-
-save_measurement(REPORT_DIR, "continuous_tflite", {"checkpoint": CHECKPOINT_PATH,
-    "model": TFLITE_PATH, "wav": WAV, "annotations": ANNOTATIONS},
-    archive_sha256=archive_hash, threshold=THRESHOLD, hop_seconds=HOP_SECONDS,
-    min_consecutive=MIN_CONSECUTIVE, release_seconds=RELEASE_SECONDS,
-    cooldown_seconds=COOLDOWN_SECONDS, early_tolerance=EARLY_TOLERANCE,
-    late_tolerance=LATE_TOLERANCE, allow_draft=ALLOW_DRAFT)
-''', {})
-
-add('markdown', r'''
-## 20. Длинная запись: метрики и временная шкала
-''', {})
-
+VALIDATION_REPORT = evaluate_clip_manifest("validation", DATA_ROOT / "splits" / "val.jsonl")
+show_clip_report(VALIDATION_REPORT)
+''')
+add('markdown', '### 5.3 Synthetic test clips')
 add('code', r'''
-import pandas as pd
+if RUN_FINAL_TEST:
+    SYNTHETIC_REPORT = evaluate_clip_manifest("synthetic_test", DATA_ROOT / "evaluation" / "synthetic_test.jsonl")
+    show_clip_report(SYNTHETIC_REPORT)
+else:
+    print("Final tests disabled; set RUN_FINAL_TEST=True after fixing model settings.")
+''')
+add('markdown', '### 5.4 Vanya held-out test clips')
+add('code', r'''
+if RUN_VANYA_TEST:
+    VANYA_REPORT = evaluate_clip_manifest("vanya_test", DATA_ROOT / "evaluation" / "vanya_test.jsonl")
+    show_clip_report(VANYA_REPORT)
+else:
+    print("Vanya test disabled; set RUN_VANYA_TEST=True.")
+''')
+add('markdown', '## 6. Continuous command tests')
+add('markdown', '### 6.1 Shared decoder and test configuration')
+add('code', r'''
+# WAV and annotation paths refer directly to Drive files. Add any number of sessions.
+# Each annotation JSON must use the original WAV frame clock.
+CONTINUOUS_CASES = [
+    # {"name": "sergey_session", "wav": Path("/content/drive/MyDrive/.../continuous.wav"),
+    #  "annotations": Path("/content/drive/MyDrive/.../continuous.reviewed.json")},
+    # {"name": "vanya_session", "wav": Path("/content/drive/MyDrive/.../continuous.wav"),
+    #  "annotations": Path("/content/drive/MyDrive/.../continuous.reviewed.json")},
+]
+THRESHOLD = 0.5
+HOP_SECONDS = 0.1
+MIN_CONSECUTIVE = 2
+RELEASE_SECONDS = 0.3
+COOLDOWN_SECONDS = 1.0
+EARLY_TOLERANCE = 0.0
+LATE_TOLERANCE = 1.0
+ALLOW_DRAFT = False
+
+def continuous_command(model, wav, output, annotations=None, negative=False):
+    command = [sys.executable, REPO / "scripts/evaluate_continuous_tflite.py",
+        "--model", model, "--wav", wav, "--labels", EVAL_LABELS,
+        "--sample-rate", sample_rate, "--window-seconds", window_seconds,
+        "--hop-seconds", HOP_SECONDS, "--threshold", THRESHOLD,
+        "--min-consecutive", MIN_CONSECUTIVE, "--release-seconds", RELEASE_SECONDS,
+        "--cooldown-seconds", COOLDOWN_SECONDS, "--early-tolerance", EARLY_TOLERANCE,
+        "--late-tolerance", LATE_TOLERANCE, "--resample", "--mono", "mean",
+        "--output-dir", output]
+    if negative:
+        command.append("--negative-only")
+    else:
+        command += ["--annotations", annotations]
+        if ALLOW_DRAFT: command.append("--allow-draft")
+    return command
+
+def run_continuous_case(case, model, output, negative=False):
+    name = case["name"]
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError(f"Invalid case name: {name!r}")
+    wav = Path(case["wav"])
+    annotations = None if negative else Path(case["annotations"])
+    if not wav.is_file(): raise FileNotFoundError(wav)
+    if annotations is not None and not annotations.is_file(): raise FileNotFoundError(annotations)
+    run(continuous_command(model, wav, output, annotations, negative), cwd=REPO)
+    inputs = {"model": model, "wav": wav, "labels": EVAL_LABELS}
+    if annotations is not None: inputs["annotations"] = annotations
+    save_measurement(output, "negative_audio" if negative else "continuous_commands", inputs,
+        threshold=THRESHOLD, hop_seconds=HOP_SECONDS, min_consecutive=MIN_CONSECUTIVE,
+        release_seconds=RELEASE_SECONDS, cooldown_seconds=COOLDOWN_SECONDS)
+    return json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+
+def continuous_summary(reports):
+    rows = []
+    for name, directory in reports.items():
+        metrics = json.loads((directory / "metrics.json").read_text(encoding="utf-8"))
+        rows.append({"case": name, **{k: metrics[k] for k in ["duration_seconds", "tp", "fp", "fn",
+            "precision", "recall", "f1", "false_positives_per_hour", "median_latency_seconds", "provisional"]}})
+    return pd.DataFrame(rows)
+''')
+add('markdown', '### 6.2 Run annotated sessions')
+add('code', r'''
+CONTINUOUS_REPORTS = {}
+if RUN_CONTINUOUS_TESTS:
+    if not CONTINUOUS_CASES: raise ValueError("Configure CONTINUOUS_CASES before running tests")
+    if len({c["name"] for c in CONTINUOUS_CASES}) != len(CONTINUOUS_CASES):
+        raise ValueError("Continuous case names must be unique")
+    for case in CONTINUOUS_CASES:
+        output = measurement_dir("continuous/" + case["name"])
+        run_continuous_case(case, ACTIVE_MODEL, output)
+        CONTINUOUS_REPORTS[case["name"]] = output
+else:
+    print("Continuous tests disabled; set RUN_CONTINUOUS_TESTS=True.")
+''')
+add('markdown', '### 6.3 Event metrics and detections')
+add('code', r'''
+if CONTINUOUS_REPORTS:
+    display(continuous_summary(CONTINUOUS_REPORTS))
+    for name, output in CONTINUOUS_REPORTS.items():
+        print(name, output)
+        display(pd.read_csv(output / "events.csv"))
+        display(pd.read_csv(output / "detections.csv"))
+else:
+    print("No continuous reports yet.")
+''')
+add('markdown', '### 6.4 Probability timelines')
+add('code', r'''
 import matplotlib.pyplot as plt
+for name, output in CONTINUOUS_REPORTS.items():
+    metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    windows = pd.read_csv(output / "windows.csv")
+    events = pd.read_csv(output / "events.csv")
+    detections = pd.read_csv(output / "detections.csv")
+    commands = list(metrics["per_class"])
+    fig, axes = plt.subplots(len(commands), 1, figsize=(16, 2.2*len(commands)), sharex=True, squeeze=False)
+    for ax, label in zip(axes[:, 0], commands):
+        ax.plot(windows.end_seconds, windows["p_" + label], label="Probability")
+        ax.axhline(metrics["config"]["threshold"], color="gray", linestyle="--")
+        for event in events[events.label == label].itertuples():
+            ax.axvspan(event.start_seconds, event.end_seconds, color="green", alpha=.2)
+        selected = detections[detections.label == label]
+        ax.scatter(selected.time_seconds, selected.confidence, color="red", marker="x")
+        ax.set(title=label, ylim=(0, 1))
+    axes[-1, 0].set_xlabel("Recording time (seconds)")
+    fig.suptitle(name + (" [provisional]" if metrics["provisional"] else ""))
+    fig.tight_layout(); fig.savefig(output / 'timeline.png', dpi=150); plt.show()
+''')
+add('markdown', '## 7. Podcast false-positive test')
+add('markdown', '### 7.1 Negative-audio input')
+add('code', r'''
+PODCAST_WAV = None  # Path("/content/drive/MyDrive/russian_commands/podcast.wav")
+PODCAST_IS_NEGATIVE = False  # Set True only when treating this recording as command-free.
+PODCAST_REPORT = None
+if RUN_PODCAST_TEST and (PODCAST_WAV is None or not PODCAST_IS_NEGATIVE):
+    raise ValueError("Set PODCAST_WAV and PODCAST_IS_NEGATIVE=True. All emitted commands will count as FP.")
+''')
+add('markdown', '### 7.2 Run the negative recording')
+add('code', r'''
+if RUN_PODCAST_TEST:
+    PODCAST_REPORT = measurement_dir("podcast")
+    run_continuous_case({"name": "podcast", "wav": PODCAST_WAV}, ACTIVE_MODEL, PODCAST_REPORT, negative=True)
+else:
+    print("Podcast test disabled; set RUN_PODCAST_TEST=True.")
+''')
+add('markdown', '### 7.3 False positives per hour and event list')
+add('code', r'''
+if PODCAST_REPORT:
+    metrics = json.loads((PODCAST_REPORT / "metrics.json").read_text(encoding="utf-8"))
+    print("Command-free assumption:", metrics["annotation_status"])
+    print("Hours:", metrics["duration_seconds"] / 3600, "FP:", metrics["fp"],
+          "FP/hour:", metrics["false_positives_per_hour"])
+    display(pd.DataFrame(metrics["per_class"]).T[["fp", "unmatched_detections_per_hour_full_recording"]])
+    display(pd.read_csv(PODCAST_REPORT / "detections.csv"))
+else:
+    print("No podcast report yet.")
+''')
+add('markdown', '## 8. Baseline comparison')
+add('markdown', '### 8.1 Baseline model and checkpoint')
+add('code', r'''
+BASELINE_RUN_NAME = "bcresnet_run_005"
+BASELINE_MODEL = Path("/content/drive/MyDrive/russian_commands/runs/bcresnet_run_005/exports/20260913T160929_482538Z_9cf8c22a/bcresnet_with_frontend_fp32.tflite")
+BASELINE_RUN = RUNS_ROOT / BASELINE_RUN_NAME
+BASELINE_CHECKPOINT = BASELINE_RUN / "checkpoints" / "best.pt"
+if not BASELINE_CHECKPOINT.is_file(): BASELINE_CHECKPOINT = BASELINE_RUN / "best.pt"
+if RUN_BASELINE_COMPARISON:
+    baseline = load_checkpoint(BASELINE_CHECKPOINT)
+    if baseline["labels"] != evaluation_labels or baseline["config"]["audio"] != evaluation_audio:
+        raise ValueError("Baseline and candidate label/audio configurations differ")
+    if not BASELINE_MODEL.is_file(): raise FileNotFoundError(BASELINE_MODEL)
+    if file_sha256(BASELINE_MODEL) == file_sha256(ACTIVE_MODEL):
+        raise ValueError("Baseline and candidate models have identical contents")
+''')
+add('markdown', '### 8.2 Paired synthetic and Vanya clip tests')
+add('code', r'''
+COMPARISON_DIR = None
+if RUN_BASELINE_COMPARISON:
+    COMPARISON_DIR = RUNS_ROOT / "model_comparisons" / unique_id()
+    run([sys.executable, REPO / "scripts/compare_tflite_models.py",
+         "--old-model", BASELINE_MODEL, "--new-model", ACTIVE_MODEL,
+         "--old-checkpoint", BASELINE_CHECKPOINT, "--new-checkpoint", CHECKPOINT_PATH,
+         "--new-dataset-root", DATA_ROOT, "--window-seconds", window_seconds,
+         "--output-dir", COMPARISON_DIR], cwd=REPO)
+else:
+    print("Baseline comparison disabled; set RUN_BASELINE_COMPARISON=True.")
+''')
+add('markdown', '### 8.3 Paired accuracy and class changes')
+add('code', r'''
+if COMPARISON_DIR:
+    comparison = json.loads((COMPARISON_DIR / "comparison.json").read_text(encoding="utf-8"))
+    for view, info in comparison["datasets"].items():
+        print(view, "N:", info["compared_count"], "supported-class macro F1:", info["supported_macro_f1"])
+        display(pd.read_csv(COMPARISON_DIR / view / "comparison_by_class.csv"))
+    print("Paired predictions:", COMPARISON_DIR)
+''')
+add('markdown', '### 8.4 Continuous sessions versus baseline')
+add('code', r'''
+BASELINE_CONTINUOUS_ROWS = []
+if RUN_BASELINE_COMPARISON and RUN_CONTINUOUS_TESTS:
+    for case in CONTINUOUS_CASES:
+        for role, model in [("baseline", BASELINE_MODEL), ("candidate", ACTIVE_MODEL)]:
+            output = measurement_dir("continuous_comparison/" + case["name"] + "/" + role)
+            metrics = run_continuous_case(case, model, output)
+            BASELINE_CONTINUOUS_ROWS.append({"case": case["name"], "model": role, "report": str(output),
+                **{k: metrics[k] for k in ["tp", "fp", "fn", "recall", "f1", "false_positives_per_hour", "median_latency_seconds"]}})
+    display(pd.DataFrame(BASELINE_CONTINUOUS_ROWS))
+''')
+add('markdown', '### 8.5 Podcast versus baseline')
+add('code', r'''
+if RUN_BASELINE_COMPARISON and RUN_PODCAST_TEST:
+    rows = []
+    for role, model in [("baseline", BASELINE_MODEL), ("candidate", ACTIVE_MODEL)]:
+        output = measurement_dir("podcast_comparison/" + role)
+        metrics = run_continuous_case({"name": "podcast", "wav": PODCAST_WAV}, model, output, negative=True)
+        rows.append({"model": role, "hours": metrics["duration_seconds"]/3600,
+                     "fp": metrics["fp"], "fp_per_hour": metrics["false_positives_per_hour"], "report": str(output)})
+    display(pd.DataFrame(rows))
+''')
 
-metrics = json.loads((REPORT_DIR / 'metrics.json').read_text(encoding='utf-8'))
-print('PROVISIONAL:', metrics['provisional'])
-display(pd.Series({key: metrics[key] for key in ["tp", "fp", "fn", "precision", "recall", "f1",
-    "unmatched_detections_per_hour_full_recording", "median_latency_seconds"]}, name="value"))
-print("FP/hour: вся длительность записи. Задержка: от конца фразы, без времени вычислений.")
-display(pd.DataFrame(metrics['per_class']).T)
-events = pd.read_csv(REPORT_DIR / 'events.csv')
-detections = pd.read_csv(REPORT_DIR / 'detections.csv')
-windows = pd.read_csv(REPORT_DIR / 'windows.csv')
-display(events.style.format({'confidence': '{:.1%}', 'latency_seconds': '{:.3f}'}, na_rep='missed'))
-display(detections.style.format({'confidence': '{:.1%}', 'latency_seconds': '{:.3f}'}, na_rep='unmatched'))
-
-commands = list(metrics['per_class'])
-fig, axes = plt.subplots(len(commands), 1, figsize=(16, 2.3 * len(commands)), sharex=True, squeeze=False)
-for ax, label in zip(axes[:, 0], commands):
-    ax.plot(windows.end_seconds, windows['p_' + label], label='Window probability')
-    ax.axhline(metrics['config']['threshold'], color='gray', linestyle='--', label='Threshold')
-    for event in events[events.label == label].itertuples():
-        ax.axvspan(event.start_seconds, event.end_seconds, color='green', alpha=.18)
-    selected = detections[detections.label == label]
-    ax.scatter(selected.time_seconds, selected.confidence, marker='x', color='red', label='Emitted event')
-    ax.set(title=label, ylim=(0, 1), ylabel='Probability')
-axes[0, 0].legend(loc='upper right')
-axes[-1, 0].set_xlabel('Recording time, seconds (green = annotation)')
-fig.suptitle('PROVISIONAL: draft annotations' if metrics['provisional'] else 'Continuous evaluation')
-fig.tight_layout()
-fig.savefig(REPORT_DIR / 'timeline.png', dpi=150)
-plt.show()
-''', {})
-
-notebook = dict(cells=cells, metadata={'kernelspec': {'display_name': 'Python 3', 'name': 'python3'}, 'language_info': {'name': 'python'}, 'colab': {'name': 'ru_kws_training.ipynb', 'provenance': []}}, nbformat=4, nbformat_minor=5)
+notebook = dict(cells=cells, metadata={'kernelspec': {'display_name': 'Python 3', 'name': 'python3'},
+    'language_info': {'name': 'python'}, 'colab': {'name': 'ru_kws_training.ipynb', 'provenance': []}},
+    nbformat=4, nbformat_minor=5)
 destination = ROOT / "notebooks/ru_kws_training.ipynb"
 destination.parent.mkdir(parents=True, exist_ok=True)
 destination.write_text(json.dumps(notebook, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

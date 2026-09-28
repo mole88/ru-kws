@@ -15,6 +15,14 @@ import numpy as np
 from evaluate_tflite import decode, encode
 
 
+def hash_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def load_annotations(path, wav_name, rate, frames, commands, allow_draft=False):
     data = json.loads(path.read_text(encoding='utf-8-sig'))
     status = data.get('annotation_status')
@@ -129,8 +137,13 @@ def score_events(events, detections, commands, duration, early, late):
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
-    for name in ['model', 'wav', 'annotations', 'labels', 'output-dir']:
+    for name in ['model', 'wav', 'labels', 'output-dir']:
         p.add_argument('--' + name, type=Path, required=True)
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--annotations', type=Path)
+    mode.add_argument('--negative-only', action='store_true',
+                      help='Assume command-free audio: every emitted command is counted as a false positive')
+    p.add_argument('--mono', choices=['error', 'mean'], default='error')
     p.add_argument('--sample-rate', type=int, default=16000)
     p.add_argument('--window-seconds', type=float, default=3)
     p.add_argument('--hop-seconds', type=float, default=.1)
@@ -181,17 +194,23 @@ def main(argv=None):
     from tqdm.auto import tqdm
 
     audio, original_rate = sf.read(args.wav, dtype='float32', always_2d=True)
-    if not len(audio) or audio.shape[1] != 1 or not np.isfinite(audio).all():
-        raise ValueError('Expected nonempty finite mono WAV')
+    if not len(audio) or not np.isfinite(audio).all():
+        raise ValueError('Expected nonempty finite WAV')
+    if audio.shape[1] != 1 and args.mono != 'mean':
+        raise ValueError('Expected mono WAV; use --mono mean to downmix')
     original_frames = len(audio)
     duration = original_frames / original_rate
-    events, status = load_annotations(args.annotations, args.wav.name, original_rate, original_frames,
-                                      commands, args.allow_draft)
+    if args.negative_only:
+        events, status = [], 'assumed_command_free'
+        print('NEGATIVE TEST: all emitted commands count as FP under the command-free assumption.', flush=True)
+    else:
+        events, status = load_annotations(args.annotations, args.wav.name, original_rate, original_frames,
+                                          commands, args.allow_draft)
     # A reviewed annotation export omits capture error details. Check the recorder sidecar too.
     sidecar = args.wav.with_suffix('.json')
     if sidecar.exists() and json.loads(sidecar.read_text(encoding='utf-8-sig')).get('error'):
         raise ValueError('Recorder sidecar reports a capture error; continuous timing is unreliable')
-    audio = audio[:, 0]
+    audio = audio.mean(axis=1)
     if original_rate != args.sample_rate:
         if not args.resample:
             raise ValueError(f'WAV is {original_rate} Hz; use --resample')
@@ -236,11 +255,13 @@ def main(argv=None):
             windows_count += 1
     metrics, matched_events, matched_detections = score_events(events, detections, commands, duration,
                                                              args.early_tolerance, args.late_tolerance)
-    metrics.update(annotation_status=status, provisional=status == 'draft', duration_seconds=duration,
+    metrics.update(annotation_status=status, provisional=status in {'draft', 'assumed_command_free'}, duration_seconds=duration,
+                   evaluation_mode='negative_only' if args.negative_only else 'annotated_commands',
+                   false_positives_per_hour=metrics['unmatched_detections_per_hour_full_recording'],
                    original_sample_rate=original_rate, windows=windows_count, label_to_id=labels,
                    config={key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
-                   hashes={key: hashlib.sha256(getattr(args, key).read_bytes()).hexdigest()
-                           for key in ['model', 'wav', 'annotations', 'labels']})
+                   hashes={key: hash_file(getattr(args, key))
+                           for key in ['model', 'wav', 'annotations', 'labels'] if getattr(args, key) is not None})
     write_csv(args.output_dir / 'events.csv', ['label', 'start_seconds', 'end_seconds', 'event_id',
               'detection_id', 'confidence', 'latency_seconds'], matched_events)
     write_csv(args.output_dir / 'detections.csv', ['label', 'time_seconds', 'confidence', 'detection_id',

@@ -89,3 +89,28 @@ def test_notebook_headings_only_and_continuous_stage_present():
             assert len(lines) == 1 and lines[0].startswith('#')
     assert any('scripts/evaluate_continuous_tflite.py' in c['source'] for c in cells)
     assert any("'timeline.png'" in c['source'] for c in cells)
+
+
+def test_notebook_has_separate_clean_views_and_negative_baseline_tests():
+    cells=notebook()['cells']
+    sources='\n'.join(c['source'] for c in cells)
+    assert not any('\u0400' <= char <= '\u04ff' for char in sources)
+    for heading in ['## 5. Clip evaluation', '## 6. Continuous command tests',
+                    '## 7. Podcast false-positive test', '## 8. Baseline comparison']:
+        assert any(c['source'].strip()==heading for c in cells)
+    assert 'preflight_audio' not in sources and 'prepare_vanya' not in sources
+    assert 'embedded_tools' not in sources
+    assert 'Evaluation tools are embedded' not in sources
+    assert 'cleaning_report.json' in sources and 'scripts/clean_dataset.py' in sources
+    assert 'synthetic_test.jsonl' in sources and 'vanya_test.jsonl' in sources
+    assert 'Combined final test' not in sources
+    assert 'vanya_separate_test' in sources
+    vanya=next(c['source'] for c in cells if 'VANYA_REPORT = evaluate_clip_manifest' in c['source'])
+    assert 'if RUN_VANYA_TEST:' in vanya and 'if RUN_FINAL_TEST:' not in vanya
+    for source in (c['source'] for c in cells if c['cell_type']=='code'):
+        if 'scripts/evaluate_tflite.py' in source and 'run([' in source:
+            assert '"--long-commands", "error"' in source
+    helper=next(c['source'] for c in cells if 'def continuous_command(' in c['source'])
+    assert '--negative-only' in helper and '--mono' in helper
+    baseline=next(c['source'] for c in cells if 'BASELINE_CONTINUOUS_ROWS = []' in c['source'])
+    assert 'run_continuous_case(case, model, output)' in baseline

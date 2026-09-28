@@ -46,13 +46,19 @@ Each manifest line has the following structure:
 - `evaluation`: clip classification metrics.
 - `train.py`, `evaluate.py`: CLI entry points.
 - `scripts/evaluate_tflite.py`: standalone TFLite dataset evaluation.
+- `scripts/clean_dataset.py`: local cleanup into a fresh dataset with Vanya held out for testing.
+- `scripts/compare_tflite_models.py`: strict paired old/new comparison on clean synthetic and Vanya tests.
 
 ## Training in Colab
 
-[Open the notebook in Colab](https://colab.research.google.com/github/mole88/ru-kws/blob/master/notebooks/ru_kws_training.ipynb).
+[Open the notebook in Colab](https://colab.research.google.com/github/mole88/ru-kws/blob/dev/notebooks/ru_kws_training.ipynb).
 
-Enable a GPU, upload the dataset archive to Google Drive, and run the cells in order.
+Prepare the dataset locally with `scripts/clean_dataset.py`, then upload its new
+archive to Drive. See [the cleanup and evaluation guide](docs/clean_dataset.md)
+for a Windows command and output details. Enable a GPU for training.
 The code is downloaded from GitHub (`REPO_REF`, currently `dev`); a source ZIP is not required.
+Evaluation scripts are loaded from the same checkout; the notebook does not
+embed or overwrite their source code.
 Set the dataset path and a new `RUN_NAME` in the configuration.
 Checkpoints and reports are saved to Drive. Check `RUN_FINAL_TEST` before running
 all cells: final test evaluation is disabled by default.
@@ -62,6 +68,20 @@ For reproducibility, set `REPO_REF` to a commit SHA.
 `python scripts/build_colab.py` rebuilds the notebook from the generator template.
 This replaces notebook edits, settings, and saved outputs; back up local changes
 before rebuilding.
+
+Sections 5–8 separate validation clips, synthetic final tests, Vanya held-out
+clips, annotated continuous sessions, podcast negatives and baseline comparison.
+Vanya is stored in its own evaluation manifest, outside all dataset splits.
+`RUN_FINAL_TEST` enables dataset tests; `RUN_VANYA_TEST` independently enables
+Vanya's test. Evaluation
+raises on missing or damaged files; it does not filter the test set.
+For saved-model evaluation, run setup, set the existing `RUN_NAME` and exact
+`EXISTING_TFLITE_PATH`, then run section 5.1 and the desired evaluation sections.
+Enable `RUN_BASELINE_COMPARISON` for paired final clip comparison. It checks
+checkpoint labels/audio settings and saves per-class accuracy, all-class and
+supported-class macro F1, paired predictions and both confusion matrices under
+`runs/model_comparisons/`. Continuous and podcast comparisons use identical
+decoder settings for both models.
 
 ## TFLite validation
 
@@ -75,7 +95,7 @@ python -m pip install ai-edge-litert numpy soundfile scipy scikit-learn matplotl
 After cloning the repository and extracting the dataset, run:
 
 ```shell
-python scripts/evaluate_tflite.py --model /path/to/model.tflite --dataset-root /path/to/dataset --split val --window-seconds 3 --long-commands skip --label-smoothing 0.1 --output-dir /path/to/evaluation/val_001
+python scripts/evaluate_tflite.py --model /path/to/model.tflite --dataset-root /path/to/dataset --split val --window-seconds 3 --long-commands error --label-smoothing 0 --output-dir /path/to/evaluation/val_001
 ```
 
 Replace the example paths with your actual paths. Use `--split test` and a new
@@ -106,11 +126,13 @@ factory; the script cannot infer them from the TFLite model.
 
 ## Continuous TFLite evaluation
 
-Use [the standalone Colab notebook](notebooks/continuous_tflite_evaluation.ipynb)
-for recorder `continuous.wav` sessions. Open it in Colab, edit the Drive paths,
-and upload `dist/continuous-evaluation-tools.zip` when prompted. The notebook
-reads the matching checkpoint's labels/audio settings and saves reports and a
-probability timeline to Drive. No retraining is required.
+Use section 6 of the main notebook for recorder `continuous.wav` sessions.
+Configure `CONTINUOUS_CASES` with WAV/annotation pairs and enable
+`RUN_CONTINUOUS_TESTS`. The notebook reads the matching checkpoint's label/audio
+settings and saves event reports and probability timelines to Drive.
+Section 7 evaluates a command-free podcast with `RUN_PODCAST_TEST`,
+`PODCAST_WAV` and `PODCAST_IS_NEGATIVE=True`. Every emitted command then counts
+as a false positive. No retraining is required.
 
 Alternatively run `scripts/evaluate_continuous_tflite.py` alongside
 `scripts/evaluate_tflite.py` with dependencies `ai-edge-litert numpy soundfile
@@ -119,6 +141,10 @@ scipy tqdm`. Example for a model with built-in frontend:
 ```shell
 python scripts/evaluate_continuous_tflite.py --model model.tflite --wav recordings/SESSION/continuous.wav --annotations recordings/SESSION/continuous.reviewed.json --labels labels.json --sample-rate 16000 --window-seconds 3 --hop-seconds 0.1 --resample --threshold 0.5 --min-consecutive 2 --release-seconds 0.3 --cooldown-seconds 1 --late-tolerance 1 --output-dir reports/continuous_001 --print-predictions
 ```
+
+For command-free negative audio, replace `--annotations ...` with
+`--negative-only`. The output records this assumption and reports FP/hour.
+Use `--mono mean` to downmix stereo input; the default rejects stereo.
 
 Use `continuous.json` and `--allow-draft` for a provisional run with keyboard
 annotations. Reviewed annotations come from the recorder's `import-labels`
@@ -148,8 +174,7 @@ events and confidence; `windows.csv` with all class probabilities. No per-window
 accuracy is reported, since overlapping windows are not independent events.
 The notebook also creates `timeline.png`. A 109-second pilot cannot establish
 a reliable rare-false-alarm rate. Keep final evaluation sessions separate from
-decoder tuning. Rebuild the notebook/tools ZIP with
-`python scripts/build_continuous_colab.py`.
+decoder tuning. Rebuild the main notebook with `python scripts/build_colab.py`.
 
 ## Voice recorder
 
@@ -173,11 +198,12 @@ they are dataset content.
 
 ## Run storage and notebook stages
 
-The main notebook includes recorder clip evaluation (17) and continuous recording
-evaluation (18–20). For an existing long-recording evaluation, run setup (Drive,
-code and environment), set `EXISTING_TFLITE_PATH`, then run 18–20. For existing
-checkpoint export, run setup then 10–15. Dataset evaluation also requires dataset
-extraction. Edit `scripts/build_colab.py`, then regenerate the notebook.
+The main notebook has eight numbered stages: setup (1), training (2), PyTorch
+evaluation (3), TFLite export (4), clip evaluation (5), continuous commands (6),
+podcast negatives (7), and baseline comparison (8). For existing checkpoint
+export, run setup then section 4. For saved-model tests, run setup, section 5.1,
+then the desired evaluation sections. Edit `scripts/build_colab.py`, then
+regenerate the notebook. Final evaluation flags are disabled by default.
 
 ```text
 runs/<RUN_NAME>/
@@ -191,8 +217,11 @@ runs/<RUN_NAME>/
     pytorch/<split>/<UTC-id>/
     tflite/<split>/<UTC-id>/
     equivalence/<UTC-id>/
-    recorder_clips/<UTC-id>/
+    clips/<view>/<UTC-id>/
     continuous/<UTC-id>/    # metrics, windows, events, detections, timeline
+    podcast/<UTC-id>/       # false positives and probabilities
+    continuous_comparison/...
+    podcast_comparison/...
 ```
 
 Each notebook measurement gets a fresh UTC timestamp plus random suffix and a
