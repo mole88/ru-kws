@@ -35,7 +35,7 @@ Enabled only during training in runs 004, 005 and v002.
 | SpecAugment | Every batch | 2 frequency masks of 0–6 bins; 2 time masks of 0–19 frames |
 
 Reverb and background mixing exclude the `background` class.
-[Configuration](configs/augmented.yaml) · [Implementation details](docs/augmentation.md)
+[Configuration](configs/augmented.yaml)
 
 ## Results
 
@@ -83,11 +83,11 @@ Sources: saved configs, histories and reports in the supplied September 28 run a
 
 ## Use
 
-1. [Clean the dataset locally](docs/clean_dataset.md), then upload the ZIP to Drive.
+1. Upload the dataset ZIP to Drive.
 2. [Open the Colab notebook](https://colab.research.google.com/github/mole88/ru-kws/blob/dev/notebooks/ru_kws_training.ipynb), enable GPU and set `DATASET_ZIP` / `RUN_NAME`.
 3. Train, export and evaluate. Synthetic, Vanya, continuous and podcast tests have separate stages; reports stay on Drive.
 
 Dataset roots contain `labels.json`, `splits/{train,val,test}.jsonl` and audio files.
 Vanya uses a separate `evaluation/vanya_test.jsonl`, outside all training/dataset splits.
 
-[Voice recorder](voice_recorder/README.md) · [Dataset and evaluation guide](docs/clean_dataset.md)
+[Voice recorder](voice_recorder/README.md)
