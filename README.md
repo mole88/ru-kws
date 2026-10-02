@@ -84,7 +84,7 @@ Sources: saved configs, histories and reports in the supplied September 28 run a
 ## Use
 
 1. Upload the dataset ZIP to Drive.
-2. [Open the Colab notebook](https://colab.research.google.com/github/mole88/ru-kws/blob/dev/notebooks/ru_kws_training.ipynb), enable GPU and set `DATASET_ZIP` / `RUN_NAME`.
+2. [Open the Colab notebook](https://colab.research.google.com/github/mole88/ru-kws/blob/master/notebooks/ru_kws_training.ipynb), enable GPU and set `DATASET_ZIP` / `RUN_NAME`.
 3. Train, export and evaluate. Synthetic, Vanya, continuous and podcast tests have separate stages; reports stay on Drive.
 
 Dataset roots contain `labels.json`, `splits/{train,val,test}.jsonl` and audio files.
