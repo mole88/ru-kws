@@ -1,163 +1,93 @@
 # Russian KWS
 
-A minimal BC-ResNet training project for Russian voice commands.
-The core code is a Python package; Colab runs standard CLI commands.
+BC-ResNet for six Russian voice commands, plus `unknown` and `background`.
+Training from scratch, audio augmentation, FP32 TFLite export with frontend,
+clip evaluation and continuous command detection.
 
-Implemented on `master`: JSONL datasets, split validation, padding/cropping, log-mel features,
-BC-ResNet, training with early stopping, best/last checkpoints, clip evaluation,
-and standalone validation of externally exported TFLite models.
-Online noise mixing, SpecAugment, streaming decoding, training resume, and TFLite
-export are not implemented yet. The model trains from scratch; pretrained weights
-are not downloaded.
+Commands: Дальше (`next`), Назад (`back`), Повторить (`repeat`),
+Запустить таймер (`start_timer`), Остановить таймер (`stop_timer`),
+Сколько осталось (`time_left`).
 
-## Latest training and evaluation
+## Model and training
 
-The latest archived run is **`bcresnet_run_005` (2026-09-13)**, trained from scratch
-using the `dev` revision
-[`d3f1e3b`](https://github.com/mole88/ru-kws/tree/d3f1e3b5195a9a9b1464ebe35b5255d483ce76d5).
-These results describe that revision, not the more limited `master` implementation
-documented below.
+| Parameter | Archived run settings |
+| --- | --- |
+| Architecture | BC-ResNet-8, `base_c=64`; 320,040 trainable parameters |
+| Input | Mono, 16 kHz, 3 s; 8 classes |
+| Frontend | 40 log-mel bins; FFT 512; window 30 ms; hop 10 ms |
+| Optimizer | Adam; initial learning rate `3e-4` |
+| Label smoothing / seed | 0.1 / 42 |
+| Batch size | 32 in run 002; 64 in other runs |
+| Epoch limit | 30 in run 002; 60 in run 003; 120 thereafter |
+| Checkpoint selection | Lowest validation loss; early stopping patience 8 |
+| Export | FP32 TFLite with frontend; 2.57 MiB |
 
-BC-ResNet (`base_c=64`) uses 16 kHz audio, a 3 s input window and 40 log-mel bins
-(512-point FFT, 30 ms analysis window, 10 ms hop). Training used batch size 64,
-initial learning rate 0.0003, label smoothing 0.1 and seed 42.
-Early stopping ended training after 54 epochs; **`best.pt` is epoch 46**, selected
-by validation loss.
+## Augmentation
 
-| Training checkpoint | Train loss | Train accuracy | Validation loss | Validation accuracy |
-| --- | ---: | ---: | ---: | ---: |
-| Best, epoch 46 | 0.52320 | 99.11% | 0.52906 | 97.91% |
-| Last, epoch 54 | 0.52067 | 98.98% | 0.53483 | 97.64% |
+Enabled only during training in runs 004, 005 and v002.
 
-Training accuracy is measured with augmentation and is not directly comparable to
-clean validation accuracy. The saved configuration enables speed perturbation
-(0.9–1.1×, probability 0.5), gain (±6 dB, 0.8), MIT room impulse responses
-(up to 1 s, 0.5), background mixing (SNR 5–20 dB, 0.8) and SpecAugment
-(two frequency masks up to 7 bins and two time masks up to 20 frames).
+| Transform | Probability | Settings |
+| --- | ---: | --- |
+| Speed | 50% | 0.90–1.10×; also changes pitch |
+| Gain | 80% | −6 to +6 dB, limited to avoid clipping |
+| Room reverb | 50% | MIT RIR convolution; impulse responses up to 1 s |
+| Background mixing | 80% | Training backgrounds; SNR 5–20 dB |
+| SpecAugment | Every batch | 2 frequency masks of 0–6 bins; 2 time masks of 0–19 frames |
 
-### Clip evaluation
+Reverb and background mixing exclude the `background` class.
+[Configuration](configs/augmented.yaml)
 
-| Model / evaluation set | Clips | Accuracy | Macro F1 |
+## Results
+
+Archived runs, September 2026. Values below are **accuracy / macro F1 (%)**.
+The original dataset uses 6,959 training and 1,483 validation clips;
+the expanded dataset uses 27,367 and 4,818.
+
+| Version | Run | Best / total epochs | Validation | Test |
+| --- | --- | ---: | ---: | ---: |
+| Before augmentation | `bcresnet_run_002` | 26 / 30 | 98.65 / 98.91 | 96.19 / 96.89 |
+| Before augmentation | `bcresnet_run_003` | 29 / 37 | 98.45 / 98.74 | 95.05 / 95.88 |
+| With augmentation | `bcresnet_run_004` | 53 / 61 | 97.71 / 98.13 | 97.66 / 98.10 |
+| With augmentation | `bcresnet_run_005` | 46 / 54 | 97.91 / 98.29 | — |
+| Expanded dataset + augmentation | `bcresnet_v002_001` | 26 / 34 | 98.07 / 98.51 | 98.30 / 98.74 |
+
+Validation uses PyTorch `best.pt`. Original tests contain 1,496 clips;
+the expanded test score uses FP32 TFLite on 4,817 usable clips.
+`—` means no original-test report was archived. Different datasets are not a paired comparison.
+
+### Same-set comparison
+
+| Evaluation set | Clips | Augmented run 005 accuracy | Expanded v002 accuracy |
 | --- | ---: | ---: | ---: |
-| PyTorch `best.pt`, synthetic validation | 1,483 | **97.91%** | **98.29%** |
-| TFLite FP32 with frontend, same validation | 1,483 | **97.91%** | **98.29%** |
-| Same TFLite model, real recorded commands | 60 | **98.33% (59/60)** | — |
+| New synthetic test | 4,817 | 98.67% | 98.30% |
+| Its `unknown` subset | 1,310 | 95.27% | 93.74% |
+| Vanya, separate real-speaker test | 60 | 66.67% (40/60) | 71.67% (43/60) |
 
-PyTorch and TFLite have identical per-class metrics on this validation set.
-The real-recording check contains 10 examples of each of the six commands, with
-no `unknown` or `background` examples; it does not measure rejection quality.
-All 60 clips were resampled to 16 kHz and centrally padded to 3 s.
-One `next` example was missed. The synthetic figures are **validation results**,
-not a held-out test score; no synthetic test report is present for this run.
+The archived comparison excluded 1,333 invalid files from 6,150 synthetic test rows
+before evaluating both models. Reference recordings used for dataset expansion
+are not presented as an independent test.
 
-### Continuous audio evaluation — provisional
+### Continuous recording
 
-On a 109.06 s recording containing 29 annotated command events, the same FP32
-TFLite model produced **26 true positives, 3 false positives and 3 false negatives**:
-event precision, recall and F1 are all **89.66%**.
+Same 109.06 s recording, 29 command events; 0.1 s hop, threshold 0.5,
+two confirming windows, 0.3 s release, 1 s cooldown; matching tolerance 0 s early / 1 s late.
 
-Settings: 3 s windows, 0.1 s hop, threshold 0.5, two consecutive positive windows,
-0.3 s release and 1 s cooldown; matching tolerances are 0 s early and 1 s late.
-The report explicitly marks annotations as `draft` and results as `provisional`.
-Its 3 unmatched detections correspond to 99.03 per hour when normalized by the
-full short recording; this is not a background-only false-alarm benchmark.
-These event metrics must not be confused with clip classification accuracy.
+| TFLite run | TP | FP | FN | Event F1 |
+| --- | ---: | ---: | ---: | ---: |
+| Before augmentation: 003 | 0 | 1 | 29 | 0.00% |
+| With augmentation: 005 | 26 | 3 | 3 | 89.66% |
+| Expanded dataset: v002 | 26 | 3 | 3 | 89.66% |
 
-All three TFLite evaluations reference the same model SHA-256:
-`bd11a4a0d1f631f4bea414ffabc7a79a8dd0d4935d3df581d57f33e3d9cf0ee7`.
+These are provisional results from **draft annotations**, not a command-free false-alarm benchmark.
+Sources: saved configs, histories and reports in the supplied September 28 run archives.
 
-Sources: [training history](https://drive.google.com/file/d/1tZS3Zf71e9V_npNSccL4SuUdzBiIcXek/view),
-[PyTorch validation](https://drive.google.com/file/d/1eDXBQFtIdz1ReBqm0TZor_jRAE1PEX8M/view),
-[TFLite validation](https://drive.google.com/file/d/1hCTzByoXXjBkgLsxa4iTG6qWWhkW4YlI/view),
-[real clips](https://drive.google.com/file/d/1uWZkgwPqGPTwB6GeCnfgXZKZAn-5myRj/view),
-[continuous evaluation](https://drive.google.com/file/d/1vH9HI3k8rb6OymbgDxOEeccbZz-7mcSa/view).
+## Use
 
-## Dataset
+1. Upload the dataset ZIP to Drive.
+2. [Open the Colab notebook](https://colab.research.google.com/github/mole88/ru-kws/blob/master/notebooks/ru_kws_training.ipynb), enable GPU and set `DATASET_ZIP` / `RUN_NAME`.
+3. Train, export and evaluate. Synthetic, Vanya, continuous and podcast tests have separate stages; reports stay on Drive.
 
-### Composition and versions
+Dataset roots contain `labels.json`, `splits/{train,val,test}.jsonl` and audio files.
+Vanya uses a separate `evaluation/vanya_test.jsonl`, outside all training/dataset splits.
 
-The task has six Russian command classes plus two rejection classes:
-
-| ID | Label | Phrase / meaning | Run 005 train | Run 005 validation |
-| --- | --- | --- | ---: | ---: |
-| 0 | `next` | Дальше | 697 | 150 |
-| 1 | `back` | Назад | 685 | 143 |
-| 2 | `repeat` | Повторить | 698 | 149 |
-| 3 | `start_timer` | Запустить таймер | 689 | 149 |
-| 4 | `stop_timer` | Остановить таймер | 693 | 142 |
-| 5 | `time_left` | Сколько осталось | 697 | 150 |
-| 6 | `unknown` | Non-target speech | 2,100 | 450 |
-| 7 | `background` | Background audio | 700 | 150 |
-| | **Total used** | | **6,959** | **1,483** |
-
-The original `v001` quality report lists **10,000 synthetic/background clips**:
-1,000 per command, 3,000 unknown and 1,000 background, split 70/15/15.
-Speech generation combines Silero and XTTS (configured Silero fraction: 20%);
-background clips are 2.5 s long. The configured voices are separated by split:
-Silero has 3/1/1 train/validation/test voices and XTTS has 14/3/3.
-The synthetic test set measures generalization to held-out synthesis voices,
-not necessarily to real microphones or speakers.
-
-Run 005 actually uses **`russian_commands_v001_clean_manual`**, packaged in
-`russian_commands_v001_clean_manual_with_aug.zip`. Its cleaned manifests have
-6,987 training and 1,493 validation records; excluding command recordings longer
-than 3 s removes another 28 and 10 respectively, giving the counts above.
-Short clips are padded; long unknown/background clips can be cropped.
-The original 10,000-clip inventory must therefore not be reported as this run's
-effective training size. Real recordings are evaluated separately in the results above.
-
-Manifests retain `speaker_group` and `parent_id` for split validation and source
-traceability. Preserve these groups when rebuilding splits so related voices and
-derived examples do not leak across partitions.
-
-A newer **`v002_expanded`** generation configuration targets 5,000 examples per
-command, 10,000 unknown and 1,000 background clips (41,000 planned in total),
-and includes real-recording inputs and three voice-reference recordings.
-It sets a 0.35–2.6 s speech duration range and a 150 ms margin.
-These are **generation targets**, not verified completed dataset counts.
-Run 005 predates this expansion and was not trained on it.
-
-Sources: [original dataset quality report](https://drive.google.com/file/d/1ITevszdsbYSDk0CvA7uQBOltARnT9rp1/view),
-[original generation configuration](https://drive.google.com/file/d/1HrjghcRLYdjOzxKH0BUF3n-JvD8_42Wf/view),
-[run dataset summary](https://drive.google.com/file/d/1Keiru-rZeYxpdynoblCZ6OK970u-w78R/view),
-[effective class counts](https://drive.google.com/file/d/1Q18goqfc4pJyTcrI3sRGOyCJl12ENMrM/view),
-[v002 generation configuration](https://drive.google.com/file/d/1_Dkx7T5RHixsBX2-ckdnblkYLwtY1nLG/view).
-
-### Dataset layout
-
-Pass the root of the **inner** dataset directory containing `labels.json`:
-
-```text
-russian_commands_v001_clean_manual/
-  labels.json
-  splits/
-    train.jsonl
-    val.jsonl
-    test.jsonl
-  audio/...
-```
-
-`labels.json` maps class names to unique IDs from 0 to N-1:
-
-```json
-{"next": 0, "back": 1, "repeat": 2, "start_timer": 3,
- "stop_timer": 4, "time_left": 5, "unknown": 6, "background": 7}
-```
-
-Each manifest line has the following structure:
-
-```json
-{"path": "audio/xtts/example.wav", "label": "next", "split": "train", "speaker_group": "xtts:voice1", "parent_id": "source1"}
-```
-
-## Modules
-
-- `data`: manifests, Dataset, collation, and validation.
-- `audio`: WAV I/O and a shared frontend.
-- `models`: the original Qualcomm BC-ResNet with relative imports.
-- `training`: training/validation epochs with metrics averaged across examples.
-- `evaluation`: clip classification metrics.
-- `train.py`, `evaluate.py`: CLI entry points.
-- `scripts/evaluate_tflite.py`: standalone TFLite dataset evaluation.
-
-
+[Voice recorder](voice_recorder/README.md)

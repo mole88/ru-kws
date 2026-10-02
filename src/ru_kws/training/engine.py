@@ -1,17 +1,22 @@
 import torch
 
 
-def run_epoch(model, frontend, loader, criterion, device, optimizer=None):
+def run_epoch(model, frontend, loader, criterion, device, optimizer=None, specaugment=None):
     training = optimizer is not None
     model.train(training)
     frontend.train(training)
+    if specaugment is not None:
+        specaugment.train(training)
     total_loss, correct, count = 0.0, 0, 0
     with torch.set_grad_enabled(training):
         for waveforms, targets in loader:
             waveforms, targets = waveforms.to(device), targets.to(device)
             if training:
                 optimizer.zero_grad(set_to_none=True)
-            logits = model(frontend(waveforms))
+            features = frontend(waveforms)
+            if training and specaugment is not None:
+                features = specaugment(features)
+            logits = model(features)
             loss = criterion(logits, targets)
             if not torch.isfinite(loss):
                 raise ValueError("Nonfinite loss; inspect audio and training parameters")

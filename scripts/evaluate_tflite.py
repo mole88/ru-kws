@@ -81,6 +81,8 @@ def parser():
     p.add_argument('--output-kind', choices=['logits', 'probabilities'], default='logits')
     p.add_argument('--label-smoothing', type=float, default=0.1)
     p.add_argument('--threads', type=int, default=2)
+    p.add_argument('--print-predictions', action='store_true',
+                   help='Print each prediction with predicted and true class probabilities')
     p.add_argument('--frontend', help='module:zero_argument_factory (omit for waveform model)')
     p.add_argument('--python-path', type=Path, help='Project src directory for frontend import')
     return p
@@ -144,7 +146,8 @@ def main():
     with (args.output_dir / 'predictions.csv').open('w', newline='', encoding='utf-8') as pf, \
          (args.output_dir / 'skipped.csv').open('w', newline='', encoding='utf-8') as sfout:
         writer = csv.writer(pf)
-        writer.writerow(['record_index', 'path', 'true_label', 'predicted_label', 'correct', 'loss', 'length_action'] + [f'p_{v}' for v in names])
+        writer.writerow(['record_index', 'path', 'true_label', 'predicted_label', 'correct', 'loss', 'length_action',
+                         'confidence', 'true_class_probability'] + [f'p_{v}' for v in names])
         skipped = csv.writer(sfout)
         skipped.writerow(['record_index', 'path', 'label', 'reason'])
         for idx, r in enumerate(tqdm(records, desc='TFLite validation')):
@@ -193,11 +196,18 @@ def main():
                     log_probs = np.log(np.maximum(probs, 1e-12))
                 target = labels[r['label']]
                 pred = int(probs.argmax())
+                confidence = float(probs[pred])
+                true_class_probability = float(probs[target])
                 loss = float(-(1 - args.label_smoothing) * log_probs[target] - args.label_smoothing * log_probs.mean())
                 truth.append(target)
                 predictions.append(pred)
                 losses.append(loss)
-                writer.writerow([idx, r['path'], r['label'], names[pred], int(target == pred), loss, action] + probs.tolist())
+                writer.writerow([idx, r['path'], r['label'], names[pred], int(target == pred), loss, action,
+                                 confidence, true_class_probability] + probs.tolist())
+                if args.print_predictions:
+                    tqdm.write(f"[{idx + 1}/{len(records)}] {r['path']} | "
+                               f"predicted={names[pred]} confidence={confidence:.2%} | "
+                               f"true={r['label']} p_true={true_class_probability:.2%}")
             except Exception as exc:
                 raise RuntimeError(f'Record {idx}, {path}: {exc}') from exc
 

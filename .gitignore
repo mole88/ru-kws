@@ -10,3 +10,9 @@ runs/
 *.pt
 *.tflite
 .ipynb_checkpoints/
+
+# Local datasets and streaming test artifacts
+/datasets/
+/local_steam_test/
+/local_stream_test/
+/local_streaming_test/

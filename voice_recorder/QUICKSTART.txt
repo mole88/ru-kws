@@ -1,0 +1,45 @@
+RU KWS Voice Recorder - Windows x64
+
+1. Extract the entire ZIP to a writable folder, for example Documents\VoiceRecorder.
+2. Double-click RU-KWS-Recorder.exe. No Python or pip installation is needed.
+3. Select 1 for command clips or 2 for continuous audio.
+4. Choose a microphone (Enter uses the Windows default), speaker ID, recording
+   condition and output folder. For clips, choose repeats per command.
+5. Keep the console focused. Enter starts recording only when prompted.
+   Wait for the recording message before speaking. Enter ends the recording.
+6. For clips: P plays back; Enter accepts; R retries; S rejects; Esc exits.
+   Both English and Russian keyboard layouts support the P/R/S key positions.
+
+Audio is mono PCM16 WAV at the microphone's native rate. Clip limit: 8 seconds.
+Leave a short pause before and after the phrase. Use the same speaker ID for
+the same person. Choose a different condition name when distance/room changes.
+
+Recordings are saved in recordings beside the EXE by default. The menu also
+accepts a different output directory. Each run creates a unique session.
+Share the complete session folder: WAV files and JSON/JSONL metadata together.
+Use only accepted rows in manifest.jsonl for command clips. Rejected takes and
+partial recordings remain on disk; do not treat every WAV as an accepted clip.
+
+Continuous recording: number keys 1-6 start a draft command region; Space ends
+the region. Enter/Esc ends the recording. Check and correct labels.draft.txt in
+Audacity before evaluation; key presses are approximate annotations.
+
+commands.json next to the EXE may be edited to change prompts. If absent, the
+six standard commands embedded in the EXE are used.
+
+If no microphone is available, connect one and select it in Windows Sound
+settings. Enable microphone access for desktop apps in Windows privacy settings.
+If saving fails, choose a writable folder in the menu. Do not run inside the ZIP.
+Use Windows 10/11 x64. macOS, Linux and 32-bit Windows need a separate build.
+This executable is not digitally signed; Windows may show a publisher warning.
+
+Advanced commands (PowerShell in the extracted folder):
+  .\RU-KWS-Recorder.exe --help
+  .\RU-KWS-Recorder.exe devices
+  .\RU-KWS-Recorder.exe self-test
+  .\RU-KWS-Recorder.exe clips --speaker sergey --repeats 10 --rate 16000
+  .\RU-KWS-Recorder.exe long --speaker sergey --max-seconds 1200
+  .\RU-KWS-Recorder.exe import-labels --wav recordings\SESSION\continuous.wav --labels recordings\SESSION\labels.reviewed.txt
+
+self-test checks bundled libraries, command data and WAV I/O. It does not record.
+The portable ZIP contains the program and instructions, not personal recordings.

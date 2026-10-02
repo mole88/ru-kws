@@ -38,12 +38,33 @@ def test_train_checkpoint_evaluate_roundtrip(tmp_path):
     result = cli("ru_kws.train", "--config", config_path, "--data-root", root,
                  "--run-dir", run, "--device", "cpu")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (run / "best.pt").is_file() and (run / "last.pt").is_file()
+    assert (run / "checkpoints" / "best.pt").is_file() and (run / "checkpoints" / "last.pt").is_file()
+    assert (run / "metadata" / "validation.json").is_file()
+    assert (run / "metadata" / "config.yaml").is_file()
+    assert (run / "training" / "history.csv").is_file()
+    assert not (run / "best.pt").exists()
     report_path = tmp_path / "test.json"
-    result = cli("ru_kws.evaluate", "--checkpoint", run / "best.pt", "--data-root", root,
+    result = cli("ru_kws.evaluate", "--checkpoint", run / "checkpoints" / "best.pt", "--data-root", root,
                  "--split", "test", "--output", report_path, "--device", "cpu")
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(report_path.read_text())
     assert report["count"] == 3 and report["epoch"] == 1
     assert sum(map(sum, report["confusion_matrix"])) == 3
     assert report["class_order"] == list(labels)
+
+
+def test_direct_training_rejects_leakage_before_creating_run(tmp_path):
+    root = tmp_path / 'dataset'
+    (root / 'splits').mkdir(parents=True)
+    (root / 'labels.json').write_text('{"next": 0}')
+    sf.write(root / 'shared.wav', np.zeros(1600), 16000)
+    for split in ('train', 'val'):
+        (root / 'splits' / f'{split}.jsonl').write_text(json.dumps({'path': 'shared.wav', 'label': 'next'}))
+    repository = Path(__file__).resolve().parents[1]
+    run = tmp_path / 'run'
+    result = subprocess.run([sys.executable, '-m', 'ru_kws.train', '--config',
+        str(repository / 'configs/baseline.yaml'), '--data-root', str(root), '--run-dir', str(run),
+        '--device', 'cpu'], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0
+    assert 'Split leakage' in result.stderr
+    assert not run.exists()
